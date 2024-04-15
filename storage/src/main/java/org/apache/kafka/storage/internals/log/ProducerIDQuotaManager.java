@@ -74,7 +74,30 @@ public class ProducerIDQuotaManager {
     }
 
     /**
-     * Add the principla/pid pair to the manager.
+     * Ensures that the PID is tracked as being seen in the last 1/2 of the window.
+     * @return true if it was found in the manager.
+     */
+    boolean track(KafkaPrincipal principal, long pid) {
+        BloomFilter bf = makeFilter(pid);
+        BiFunction<KafkaPrincipal, PIDFilter, PIDFilter>  adder = (k,f) -> f == null ? new PIDFilter(bf) : f.merge(bf);
+        PIDFilter pidFilter = map.get(principal);
+        if (pidFilter != null) {
+            if (pidFilter.contains(bf)) {
+                if (pidFilter.isRecent(bf)) {
+                    return true;
+                }
+                // make sure it is recent
+                map.compute(principal, adder);
+                return true;
+            }
+        }
+        map.compute(principal, adder);
+        return false;
+    }
+
+    
+    /**
+     * Add the principal/pid pair to the manager.
      * @param principal the principal to add
      * @param pid the pair associated with the principal
      */
@@ -170,6 +193,16 @@ public class ProducerIDQuotaManager {
             return bloomFilter.contains(bf);
         }
 
+        /**
+         * Ensures that the PID is tracked as being seen in the last 1/2 of the window.
+         * @return true if it was in the last 1/2
+         */
+        boolean isRecent(BloomFilter bf) {
+            int[] layers = bloomFilter.find(bf);
+            return layers.length > 0 ? layers[layers.length-1] > (bloomFilter.getDepth()/2) : false;
+        }
+
+        
         /** 
          * @return true if there are no PIDs being tracked for the principal.
          */
