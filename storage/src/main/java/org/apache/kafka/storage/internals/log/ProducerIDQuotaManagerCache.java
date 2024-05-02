@@ -1,5 +1,6 @@
 package org.apache.kafka.storage.internals.log;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -21,31 +22,31 @@ public class ProducerIDQuotaManagerCache {
     /** The number of expected layers */
     private final int layerCount;
     /** The time to live for a single layer (e.g. 1 hour) in milliseconds */
-    private final long ttl;
+    private final Duration windowLength;
     /** A timer for misc cleanup */
     private final Timer timer;
 
-    private final long deltaT3;
-    private final long deltaT;
-
     /**
      * Constructor.  This manager tracks the PIDs for each principal.
-     * PIDs will expire from the Manager after the number of milliseconds specified in the {@code ttl}
-     * parameter.  A new window is started every ttl/layerCount milliseconds.
+     * PIDs will expire from the Manager after the number of milliseconds specified in the {@code windowLengthInSeconds}
+     * parameter.  A new window is started every windowLengthInSeconds/layerCount seconds.
      * @param falsePositiveRate The acceptable false positive rate.
-     * @param ttl The number of milliseconds each window should last.
+     * @param windowLengthInSeconds The number of seconds each window should last.
      * @param layerCount  The number of layers that should be active at any one time.
      */
-    public ProducerIDQuotaManagerCache(Double falsePositiveRate, long ttl, int layerCount) {
+    public ProducerIDQuotaManagerCache(Double falsePositiveRate, long windowLengthInSeconds, int layerCount) {
         this.map = new ConcurrentHashMap<>();
         this.falsePositiveRate = falsePositiveRate;
-        this.ttl = ttl;
+        this.windowLength = Duration.ofSeconds(windowLengthInSeconds);
         this.layerCount = layerCount;
         this.timer = new Timer();
-        this.deltaT = ttl/layerCount;
-        this.deltaT3 = 3*deltaT;
+
         // run the cleanup as windows expire.
-        timer.schedule(new TimerTask() { public void run() { cleanMap();}}, ttl, deltaT);
+        timer.schedule(new TimerTask() { public void run() { cleanMap();}}, windowLength.toMillis(), deltaT());
+    }
+
+    private long deltaT() {
+        return windowLength.toMillis()/layerCount;
     }
 
     /**
@@ -57,7 +58,7 @@ public class ProducerIDQuotaManagerCache {
      */
     boolean track(KafkaPrincipal principal, int producerIdRate, long pid) {
         Hasher hasher = makeHasher(pid);
-        int windowRate = (int) Math.round(producerIdRate * 1.0 / layerCount);
+        int windowRate = (int) Math.round(producerIdRate * Duration.ofHours(1).toSeconds() *  / layerCount);
         BiFunction<KafkaPrincipal, PIDFilter, PIDFilter>  adder = null;
         PIDFilter pidFilter = map.get(principal);
         if (pidFilter != null) {
@@ -139,7 +140,7 @@ public class ProducerIDQuotaManagerCache {
             // should be started.
             Predicate<LayerManager> advance = LayerManager.ExtendCheck.advanceOnCount(estimatedPids).or(new TimerPredicate());
             // the manager for the layer.  Performs automatic cleanup and advance when necessary.
-            layerManager = LayerManager.builder().setCleanup(cleanup).setSupplier( ()-> new TimestampedBloomFilter(shape, ttl))
+            layerManager = LayerManager.builder().setCleanup(cleanup).setSupplier( ()-> new TimestampedBloomFilter(shape, windowLength.toMillis()))
                     .setExtendCheck(advance).build();
             // the layered bloom filter.
             bloomFilter = new LayeredBloomFilter(shape, layerManager);
@@ -200,15 +201,15 @@ public class ProducerIDQuotaManagerCache {
             return bloomFilter.contains(hasher);
         }
         /**
-         * Ensures that the PID is tracked as being seen in the last 1/2 of the window.
-         * @return true if it was in the last 1/2
+         * Ensures that the PID is tracked as being seen in the last logical layer of the window.
+         * @return true if it was in the last logical layer
          */
         boolean isRecent(BloomFilter bf) {
             int[] layers = bloomFilter.find(bf);
             if (layers.length > 0) {
                 TimestampedBloomFilter first = (TimestampedBloomFilter) bloomFilter.get(0);
                 TimestampedBloomFilter last = (TimestampedBloomFilter) bloomFilter.get(layers[layers.length-1]);
-                return last.expires > first.expires+deltaT3;
+                return last.expires > first.expires+ (layerCount-1.0/layerCount)* windowLength.toMillis();
             }
             return false;
         }
@@ -227,7 +228,7 @@ public class ProducerIDQuotaManagerCache {
             long expires;
 
             TimerPredicate() {
-                expires = System.currentTimeMillis() + deltaT;
+                expires = System.currentTimeMillis() + deltaT();
             }
             
             @Override
@@ -236,7 +237,7 @@ public class ProducerIDQuotaManagerCache {
                 if (expires > now) {
                     return false;
                 }
-                expires = now + deltaT;
+                expires = now + deltaT();
                 return true;
             }
         }
