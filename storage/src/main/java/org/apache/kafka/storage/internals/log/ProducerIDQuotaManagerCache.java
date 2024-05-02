@@ -49,7 +49,7 @@ public class ProducerIDQuotaManagerCache {
     }
 
     /**
-     * Ensures that the PID is tracked as being seen in the last 1/2 of the window.
+     * Ensures that the PID is tracked as being seen in the last window range.
      * @param principal the principal to track.
      * @param producerIdRate the rate per hour at which PIDs are expected to be generated.
      * @param pid the PID to track.
