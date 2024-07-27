@@ -63,7 +63,19 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
      * expect one writer and multiple readers accessing the ACL data, and we use the lock to make
      * sure we have consistent reads when writer tries to change the data.
      */
-    private volatile StandardAuthorizerData data = StandardAuthorizerData.createEmpty();
+    private volatile AuthorizerData data;
+
+    public StandardAuthorizer() {
+        data = StandardAuthorizerData.createEmpty();
+    }
+
+    protected StandardAuthorizer(AuthorizerData data) {
+        this.data = data;
+    }
+
+    protected AuthorizerData getData() {
+        return data;
+    }
 
     @Override
     public void setAclMutator(AclMutator aclMutator) {
@@ -72,7 +84,7 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
 
     @Override
     public AclMutator aclMutatorOrException() {
-        AclMutator aclMutator = data.aclMutator;
+        AclMutator aclMutator = data.aclMutator();
         if (aclMutator == null) {
             throw new NotControllerException("The current node is not the active controller.");
         }
@@ -82,7 +94,7 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
     @Override
     public void completeInitialLoad() {
         data = data.copyWithNewLoadingComplete(true);
-        data.log.info("Completed initial ACL load process.");
+        data.log().info("Completed initial ACL load process.");
         initialLoadFuture.complete(null);
     }
 
@@ -94,7 +106,7 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
     @Override
     public void completeInitialLoad(Exception e) {
         if (!initialLoadFuture.isDone()) {
-            data.log.error("Failed to complete initial ACL load process.", e);
+            data.log().error("Failed to complete initial ACL load process.", e);
             initialLoadFuture.completeExceptionally(e);
         }
     }
@@ -111,11 +123,7 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
 
     @Override
     public void loadSnapshot(Map<Uuid, StandardAcl> acls) {
-        StandardAuthorizerData newData = StandardAuthorizerData.createEmpty();
-        for (Map.Entry<Uuid, StandardAcl> entry : acls.entrySet()) {
-            newData.addAcl(entry.getKey(), entry.getValue());
-        }
-        data = data.copyWithNewAcls(newData.getAclCache());
+        data = data.copyWithNewAcls(acls);
     }
 
     @Override
@@ -138,7 +146,7 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
             AuthorizableRequestContext requestContext,
             List<Action> actions) {
         List<AuthorizationResult> results = new ArrayList<>(actions.size());
-        StandardAuthorizerData curData = data;
+        AuthorizerData curData = data;
         for (Action action : actions) {
             AuthorizationResult result = curData.authorize(requestContext, action);
             results.add(result);
@@ -176,7 +184,7 @@ public class StandardAuthorizer implements ClusterMetadataAuthorizer {
             nodeId = -1;
         }
         data = data.copyWithNewConfig(nodeId, superUsers, defaultResult);
-        this.data.log.info("set super.users={}, default result={}", String.join(",", superUsers), defaultResult);
+        this.data.log().info("set super.users={}, default result={}", String.join(",", superUsers), defaultResult);
     }
 
     // VisibleForTesting

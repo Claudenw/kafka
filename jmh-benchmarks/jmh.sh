@@ -37,6 +37,6 @@ echo "gradle build done"
 
 echo "running JMH with args: $@"
 
-java -jar ${libDir}/kafka-jmh-benchmarks-*.jar "$@"
+java -Xmx9000m -jar ${libDir}/kafka-jmh-benchmarks-*.jar "$@"
 
 echo "JMH benchmarks done"

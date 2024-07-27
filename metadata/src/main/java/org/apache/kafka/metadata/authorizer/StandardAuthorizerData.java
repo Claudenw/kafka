@@ -29,29 +29,18 @@ import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.SecurityUtils;
-import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
 
-import static org.apache.kafka.common.acl.AclOperation.ALL;
-import static org.apache.kafka.common.acl.AclOperation.ALTER;
-import static org.apache.kafka.common.acl.AclOperation.ALTER_CONFIGS;
-import static org.apache.kafka.common.acl.AclOperation.DELETE;
-import static org.apache.kafka.common.acl.AclOperation.DESCRIBE;
-import static org.apache.kafka.common.acl.AclOperation.DESCRIBE_CONFIGS;
-import static org.apache.kafka.common.acl.AclOperation.READ;
-import static org.apache.kafka.common.acl.AclOperation.WRITE;
-import static org.apache.kafka.common.acl.AclPermissionType.ALLOW;
 import static org.apache.kafka.common.resource.PatternType.LITERAL;
 import static org.apache.kafka.server.authorizer.AuthorizationResult.ALLOWED;
 import static org.apache.kafka.server.authorizer.AuthorizationResult.DENIED;
@@ -62,17 +51,7 @@ import static org.apache.kafka.server.authorizer.AuthorizationResult.DENIED;
  *
  * The class is not thread-safe.
  */
-public class StandardAuthorizerData {
-    /**
-     * The host or name string used in ACLs that match any host or name.
-     */
-    public static final String WILDCARD = "*";
-
-    /**
-     * The principal entry used in ACLs that match any principal.
-     */
-    public static final String WILDCARD_PRINCIPAL = "User:*";
-    public static final KafkaPrincipal WILDCARD_KAFKA_PRINCIPAL = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "*");
+public class StandardAuthorizerData implements AuthorizerData {
 
     /**
      * The logger to use.
@@ -143,26 +122,26 @@ public class StandardAuthorizerData {
         this.aclCache = aclCache;
     }
 
-    StandardAuthorizerData copyWithNewAclMutator(AclMutator newAclMutator) {
+    public StandardAuthorizerData copyWithNewAclMutator(AclMutator newAclMutator) {
         return new StandardAuthorizerData(
             log,
             newAclMutator,
             loadingComplete,
             superUsers,
-            noAclRule.result,
+            noAclRule.result(),
             aclCache);
     }
 
-    StandardAuthorizerData copyWithNewLoadingComplete(boolean newLoadingComplete) {
+    public StandardAuthorizerData copyWithNewLoadingComplete(boolean newLoadingComplete) {
         return new StandardAuthorizerData(log,
             aclMutator,
             newLoadingComplete,
             superUsers,
-            noAclRule.result,
+            noAclRule.result(),
             aclCache);
     }
 
-    StandardAuthorizerData copyWithNewConfig(int nodeId,
+    public StandardAuthorizerData copyWithNewConfig(int nodeId,
                                              Set<String> newSuperUsers,
                                              AuthorizationResult newDefaultResult) {
         return new StandardAuthorizerData(
@@ -174,19 +153,24 @@ public class StandardAuthorizerData {
             aclCache);
     }
 
-    StandardAuthorizerData copyWithNewAcls(AclCache aclCache) {
+    public StandardAuthorizerData copyWithNewAcls(Map<Uuid, StandardAcl> acls) {
+        AclCache newCache = new AclCache();
+        for (Map.Entry<Uuid, StandardAcl> entry : acls.entrySet()) {
+            aclCache.addAcl(entry.getKey(), entry.getValue());
+        }
+
         StandardAuthorizerData newData =  new StandardAuthorizerData(
             log,
             aclMutator,
             loadingComplete,
             superUsers,
-            noAclRule.result,
-            aclCache);
-        log.info("Initialized with {} acl(s).", aclCache.count());
+            noAclRule.result(),
+            newCache);
+        log.info("Initialized with {} acl(s).", newCache.count());
         return newData;
     }
 
-    void addAcl(Uuid id, StandardAcl acl) {
+    public void addAcl(Uuid id, StandardAcl acl) {
         try {
             aclCache = aclCache.addAcl(id, acl);
             log.trace("Added ACL {}: {}", id, acl);
@@ -196,7 +180,7 @@ public class StandardAuthorizerData {
         }
     }
 
-    void removeAcl(Uuid id) {
+    public void removeAcl(Uuid id) {
         try {
             AclCache aclCacheSnapshot = aclCache.removeAcl(id);
             log.trace("Removed ACL {}: {}", id, aclCacheSnapshot.getAcl(id));
@@ -207,18 +191,23 @@ public class StandardAuthorizerData {
         }
     }
 
-    Set<String> superUsers() {
+    public Set<String> superUsers() {
         return superUsers;
     }
 
-    AuthorizationResult defaultResult() {
-        return noAclRule.result;
+    public AuthorizationResult defaultResult() {
+        return noAclRule.result();
     }
 
-    int aclCount() {
+    public int aclCount() {
         return aclCache.count();
     }
 
+    public AclMutator aclMutator() {
+        return aclMutator;
+    }
+
+    public Logger log() { return log; }
     /**
      * Authorize an action based on the current set of ACLs.
      *
@@ -228,14 +217,15 @@ public class StandardAuthorizerData {
      * result. In general it makes more sense to configure the default result to be
      * DENY, but some people (and unit tests) configure it as ALLOW.
      */
+    @Override
     public AuthorizationResult authorize(
-        AuthorizableRequestContext requestContext,
-        Action action
+            AuthorizableRequestContext requestContext,
+            Action action
     ) {
         if (action.resourcePattern().patternType() != LITERAL) {
             throw new IllegalArgumentException("Only literal resources are supported. Got: " + action.resourcePattern().patternType());
         }
-        KafkaPrincipal principal = baseKafkaPrincipal(requestContext);
+        KafkaPrincipal principal = AuthorizerData.baseKafkaPrincipal(requestContext);
         final MatchingRule rule;
 
         // Superusers are authorized to do anything.
@@ -245,7 +235,7 @@ public class StandardAuthorizerData {
             throw new AuthorizerNotReadyException();
         } else {
             rule = findAclRule(
-                matchingPrincipals(requestContext),
+                AuthorizerData.matchingPrincipals(requestContext),
                 requestContext.clientAddress().getHostAddress(),
                 action
             );
@@ -425,7 +415,7 @@ public class StandardAuthorizerData {
                 continue;
             }
             matchingRuleBuilder.hasResourceAcls = true;
-            AuthorizationResult result = findResult(action, matchingPrincipals, host, acl);
+            AuthorizationResult result = AuthorizerData.findResult(action, matchingPrincipals, host, acl);
             if (ALLOWED == result) {
                 matchingRuleBuilder.allowAcl = acl;
             } else if (DENIED == result) {
@@ -436,192 +426,13 @@ public class StandardAuthorizerData {
     }
 
     /**
-     * The set of operations which imply DESCRIBE permission, when used in an ALLOW acl.
-     */
-    private static final Set<AclOperation> IMPLIES_DESCRIBE = Collections.unmodifiableSet(
-        EnumSet.of(DESCRIBE, READ, WRITE, DELETE, ALTER));
-
-    /**
-     * The set of operations which imply DESCRIBE_CONFIGS permission, when used in an ALLOW acl.
-     */
-    private static final Set<AclOperation> IMPLIES_DESCRIBE_CONFIGS = Collections.unmodifiableSet(
-        EnumSet.of(DESCRIBE_CONFIGS, ALTER_CONFIGS));
-
-    static AuthorizationResult findResult(Action action,
-                                          AuthorizableRequestContext requestContext,
-                                          StandardAcl acl) {
-        return findResult(
-            action,
-            matchingPrincipals(requestContext),
-            requestContext.clientAddress().getHostAddress(),
-            acl
-        );
-    }
-
-    static KafkaPrincipal baseKafkaPrincipal(AuthorizableRequestContext context) {
-        KafkaPrincipal sessionPrincipal = context.principal();
-        return sessionPrincipal.getClass().equals(KafkaPrincipal.class)
-            ? sessionPrincipal
-            : new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName());
-    }
-
-    static Set<KafkaPrincipal> matchingPrincipals(AuthorizableRequestContext context) {
-        KafkaPrincipal sessionPrincipal = context.principal();
-        KafkaPrincipal basePrincipal = sessionPrincipal.getClass().equals(KafkaPrincipal.class)
-            ? sessionPrincipal
-            : new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName());
-        return Utils.mkSet(basePrincipal, WILDCARD_KAFKA_PRINCIPAL);
-    }
-
-    /**
-     * Determine what the result of applying an ACL to the given action and request
-     * context should be. Note that this function assumes that the resource name matches;
-     * the resource name is not checked here.
-     *
-     * @param action             The input action.
-     * @param matchingPrincipals The set of input matching principals
-     * @param host               The input host.
-     * @param acl                The input ACL.
-     * @return                   null if the ACL does not match. The authorization result
-     *                           otherwise.
-     */
-    static AuthorizationResult findResult(Action action,
-                                          Set<KafkaPrincipal> matchingPrincipals,
-                                          String host,
-                                          StandardAcl acl) {
-        // Check if the principal matches. If it doesn't, return no result (null).
-        if (!matchingPrincipals.contains(acl.kafkaPrincipal())) {
-            return null;
-        }
-        // Check if the host matches. If it doesn't, return no result (null).
-        if (!acl.host().equals(WILDCARD) && !acl.host().equals(host)) {
-            return null;
-        }
-        // Check if the operation field matches. Here we hit a slight complication.
-        // ACLs for various operations (READ, WRITE, DELETE, ALTER), "imply" the presence
-        // of DESCRIBE, even if it isn't explicitly stated. A similar rule applies to
-        // DESCRIBE_CONFIGS.
-        //
-        // But this rule only applies to ALLOW ACLs. So for example, a DENY ACL for READ
-        // on a resource does not DENY describe for that resource.
-        if (acl.operation() != ALL) {
-            if (acl.permissionType().equals(ALLOW)) {
-                switch (action.operation()) {
-                    case DESCRIBE:
-                        if (!IMPLIES_DESCRIBE.contains(acl.operation())) return null;
-                        break;
-                    case DESCRIBE_CONFIGS:
-                        if (!IMPLIES_DESCRIBE_CONFIGS.contains(acl.operation())) return null;
-                        break;
-                    default:
-                        if (action.operation() != acl.operation()) {
-                            return null;
-                        }
-                        break;
-                }
-            } else if (action.operation() != acl.operation()) {
-                return null;
-            }
-        }
-
-        return acl.permissionType().equals(ALLOW) ? ALLOWED : DENIED;
-    }
-
-    /**
      * Creates a consistent Iterable on read-only copy of AclBindings data for the given filter.
      *
      * @param filter The filter constraining the AclBindings to be present in the Iterable.
      * @return Iterable over AclBindings matching the filter.
      */
-    Iterable<AclBinding> acls(AclBindingFilter filter) {
+    public Iterable<AclBinding> acls(AclBindingFilter filter) {
         return aclCache.acls(filter);
     }
 
-    private interface MatchingRule {
-        AuthorizationResult result();
-    }
-
-    private static class SuperUserRule implements MatchingRule {
-        private static final SuperUserRule INSTANCE = new SuperUserRule();
-
-        @Override
-        public AuthorizationResult result() {
-            return ALLOWED;
-        }
-
-        @Override
-        public String toString() {
-            return "SuperUser";
-        }
-    }
-
-    private static class DefaultRule implements MatchingRule {
-        private final AuthorizationResult result;
-
-        private DefaultRule(AuthorizationResult result) {
-            this.result = result;
-        }
-
-        @Override
-        public AuthorizationResult result() {
-            return result;
-        }
-
-        @Override
-        public String toString() {
-            return result == ALLOWED ? "DefaultAllow" : "DefaultDeny";
-        }
-    }
-
-    private static class MatchingAclRule implements MatchingRule {
-        private final StandardAcl acl;
-        private final AuthorizationResult result;
-
-        private MatchingAclRule(StandardAcl acl, AuthorizationResult result) {
-            this.acl = acl;
-            this.result = result;
-        }
-
-        @Override
-        public AuthorizationResult result() {
-            return result;
-        }
-
-        @Override
-        public String toString() {
-            return "MatchingAcl(acl=" + acl + ")";
-        }
-    }
-
-    private static class MatchingRuleBuilder {
-        private static final DefaultRule DENY_RULE = new DefaultRule(DENIED);
-        private final DefaultRule noAclRule;
-        private StandardAcl denyAcl;
-        private StandardAcl allowAcl;
-        private boolean hasResourceAcls;
-
-        public MatchingRuleBuilder(DefaultRule noAclRule) {
-            this.noAclRule = noAclRule;
-        }
-
-        boolean foundDeny() {
-            return denyAcl != null;
-        }
-
-        MatchingRule build() {
-            if (denyAcl != null) {
-                return new MatchingAclRule(denyAcl, DENIED);
-            } else if (allowAcl != null) {
-                return new MatchingAclRule(allowAcl, ALLOWED);
-            } else if (!hasResourceAcls) {
-                return noAclRule;
-            } else {
-                return DENY_RULE;
-            }
-        }
-    }
-
-    AclCache getAclCache() {
-        return aclCache;
-    }
 }
