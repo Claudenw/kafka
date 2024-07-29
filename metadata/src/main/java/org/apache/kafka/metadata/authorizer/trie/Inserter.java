@@ -23,23 +23,26 @@ package org.apache.kafka.metadata.authorizer.trie;
  */
 public interface Inserter<T extends Comparable<T>> extends FragmentHolder<T> {
 
-        /**
-         * Returns {@code true} if the fragment represents a wildcard.
-         * @return {@code true} if the fragment represents a wildcard.
-         */
-        boolean isWildcard() ;
+    /**
+     * Returns {@code true} if the fragment represents a wildcard.
+     *
+     * @return {@code true} if the fragment represents a wildcard.
+     */
+    boolean isWildcard();
 
-        /**
-         * Returns {@code true} if the fragment is empty.
-         * @return {@code true} if the fragment is empty.
-         */
-        boolean isEmpty();
+    /**
+     * Returns {@code true} if the fragment is empty.
+     *
+     * @return {@code true} if the fragment is empty.
+     */
+    boolean isEmpty();
 
-        /**
-         * Advance to the next inserter position in the underlying pattern.  If there is no next inserter position
-         * an inserter that return {@code true} for {@link #isEmpty()} is returned.
-         * @param advance The number of pattern elements to advance.  (e.g. for Strings this is the number of chars to advance in the pattern)
-         * @return an inserter starts at the new position.  May be the original instance modified or may  be anew instance of Inserter.
-         */
-        Inserter<T> advance(int advance);
+    /**
+     * Advance to the next inserter position in the underlying pattern.  If there is no next inserter position
+     * an inserter that return {@code true} for {@link #isEmpty()} is returned.
+     *
+     * @param advance The number of pattern elements to advance.  (e.g. for Strings this is the number of chars to advance in the pattern)
+     * @return an inserter starts at the new position.  May be the original instance modified or may  be anew instance of Inserter.
+     */
+    Inserter<T> advance(int advance);
 }

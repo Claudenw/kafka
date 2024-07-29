@@ -17,7 +17,7 @@
 
 package org.apache.kafka.metadata.authorizer;
 
-import org.apache.kafka.server.authorizer.AuthorizationResult;;
+import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.junit.jupiter.api.Timeout;
 import java.util.Set;
 
@@ -33,12 +33,12 @@ public class TrieAuthorizerTest extends AbstractClusterMetadataAuthorizerTest {
 
         @Override
         public Set<String> superUsers(ClusterMetadataAuthorizer authorizer) {
-            return ((NameTrieAuthorizer)authorizer).superUsers();
+            return ((NameTrieAuthorizer) authorizer).superUsers();
         }
 
         @Override
         public AuthorizationResult defaultResult(ClusterMetadataAuthorizer authorizer) {
-            return ((NameTrieAuthorizer)authorizer).defaultResult();
+            return ((NameTrieAuthorizer) authorizer).defaultResult();
         }
     };
 

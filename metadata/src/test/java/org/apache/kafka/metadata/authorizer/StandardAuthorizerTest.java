@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Timeout;
 import java.util.Set;
 
 @Timeout(value = 40)
-public class StandardAuthorizerTest extends AbstractClusterMetadataAuthorizerTest{
+public class StandardAuthorizerTest extends AbstractClusterMetadataAuthorizerTest {
     AbstractClusterMetadataAuthorizerTest.TestingWrapper testingWrapper = new AbstractClusterMetadataAuthorizerTest.TestingWrapper() {
 
         @Override
@@ -32,16 +32,17 @@ public class StandardAuthorizerTest extends AbstractClusterMetadataAuthorizerTes
 
         @Override
         public Set<String> superUsers(ClusterMetadataAuthorizer authorizer) {
-            return ((StandardAuthorizer)authorizer).superUsers();
+            return ((StandardAuthorizer) authorizer).superUsers();
         }
 
         @Override
         public AuthorizationResult defaultResult(ClusterMetadataAuthorizer authorizer) {
-            return ((StandardAuthorizer)authorizer).defaultResult();
+            return ((StandardAuthorizer) authorizer).defaultResult();
         }
     };
 
     @Override
     protected AbstractClusterMetadataAuthorizerTest.TestingWrapper getTestingWrapper() {
         return testingWrapper;
-    }}
+    }
+}

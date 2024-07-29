@@ -83,9 +83,9 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
     private static final int CONFIGS_MAP = BitMaps.getIntBit(DESCRIBE_CONFIGS.code()) | BitMaps.getIntBit(ALTER_CONFIGS.code());
 
     /** A predicate that matchers LITERAL patterns */
-    private static final Predicate<StandardAcl> literalPattern = acl -> acl.patternType() == LITERAL;
+    private static final Predicate<StandardAcl> LITERAL_PATTERN = acl -> acl.patternType() == LITERAL;
     /** A predicate that matches PREFIXED patterns */
-    private static final Predicate<StandardAcl> prefixedPattern = acl -> acl.patternType() == PREFIXED;
+    private static final Predicate<StandardAcl> PREFIXED_PATTERN = acl -> acl.patternType() == PREFIXED;
 
     /**
      * The logger to use.
@@ -288,7 +288,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
      * @return either {@code literalPattern} or {@code prefixPattern} depending on whether or not the node fragment is a wildcard.
      */
     Predicate<StandardAcl> resourcePatternFilter(Node<AclContainer> node, Action action) {
-        return WildcardRegistry.isWildcard(node.getFragment()) || action.resourcePattern().name().endsWith(node.getFragment()) ? literalPattern : prefixedPattern;
+        return WildcardRegistry.isWildcard(node.getFragment()) || action.resourcePattern().name().endsWith(node.getFragment()) ? LITERAL_PATTERN : PREFIXED_PATTERN;
     }
 
     /**
@@ -359,7 +359,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
 
         // Define the filter used in the traversal of the trie.  If the contents matches the filter we are done.
         @SuppressWarnings("unchecked")
-        final Node<AclContainer> found[] = new Node[1];
+        final Node<AclContainer>[] found = new Node[1];
         Predicate<Node<AclContainer>> traversalFilter = n -> {
             AclContainer contents = n.getContents();
             if (contents != null) {
@@ -426,7 +426,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
 
         // if the target does not have matching rule then move back up the path looking for a matching node.
         permissionFilter = acl -> acl.permissionType() == ALLOW;
-        final Predicate<StandardAcl> acceptFilter = permissionFilter.and(prefixedPattern).and(aclFilter);
+        final Predicate<StandardAcl> acceptFilter = permissionFilter.and(PREFIXED_PATTERN).and(aclFilter);
         while (!target.getFragment().equals("")) {
             AclContainer pattern = target.getContents();
             if (pattern != null) {

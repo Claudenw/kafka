@@ -179,7 +179,7 @@ public interface AuthorizerData {
      */
     AuthorizerData copyWithNewConfig(int nodeId,
                                              Set<String> newSuperUsers,
-                                             AuthorizationResult newDefaultResult) ;
+                                             AuthorizationResult newDefaultResult);
 
     /**
      * Creates a copy of this AuthorizerDaa with the new Acls.

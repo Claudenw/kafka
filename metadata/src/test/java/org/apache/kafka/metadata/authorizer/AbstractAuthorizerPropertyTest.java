@@ -51,7 +51,6 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 import static org.apache.kafka.common.security.auth.KafkaPrincipal.USER_TYPE;
-import static org.apache.kafka.metadata.authorizer.StandardAuthorizerTest.PLAINTEXT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public abstract class AbstractAuthorizerPropertyTest {

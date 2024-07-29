@@ -43,8 +43,7 @@ public class StringMatcher<T> implements Matcher<T> {
      * @param base the base for the matcher.
      * @param position the new position within the base.
      */
-    private StringMatcher(StringMatcherBase<T> base, int position)
-    {
+    private StringMatcher(StringMatcherBase<T> base, int position) {
         this.base = base;
         this.position = position;
     }
@@ -56,7 +55,7 @@ public class StringMatcher<T> implements Matcher<T> {
 
     @Override
     public StringMatcher<T> advance(int advance) {
-        return new StringMatcher<>(base, position+advance);
+        return new StringMatcher<>(base, position + advance);
     }
 
     @Override

@@ -23,12 +23,9 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.errors.AuthorizerNotReadyException;
-import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.resource.PatternType;
-import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
@@ -196,7 +193,10 @@ public class StandardAuthorizerData extends AbstractAuthorizerData {
         return aclMutator;
     }
 
-    public Logger log() { return log; }
+    @Override
+    public Logger log() {
+        return log;
+    }
     /**
      * Authorize an action based on the current set of ACLs.
      *
