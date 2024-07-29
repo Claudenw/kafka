@@ -350,7 +350,6 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
      * @return the matching rule.
      */
     private MatchingRule matchingRuleByResourceType(KafkaPrincipal principal, String host, AclOperation operation, ResourceType resourceType) {
-        NameTrie<AclContainer> trie = trieData.getTrie(resourceType);
         // principal filter
         final Predicate<StandardAcl> principalFilter = acl -> principal.equals(acl.kafkaPrincipal());
         final Predicate<StandardAcl> aclFilter = operationFilter(operation).and(hostFilter(host)).and(principalFilter);
@@ -358,24 +357,21 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
 
 
         // Define the filter used in the traversal of the trie.  If the contents matches the filter we are done.
-        @SuppressWarnings("unchecked")
-        final Node<AclContainer>[] found = new Node[1];
         Predicate<Node<AclContainer>> traversalFilter = n -> {
             AclContainer contents = n.getContents();
             if (contents != null) {
                 Optional<StandardAcl> opt = contents.first(filter);
                 if (opt.isPresent()) {
-                    found[0] = n;
                     return false;
                 }
             }
             return true;
         };
         // walk the trie looking for a match.
-        Walker.preOrder(traversalFilter, trieData.getTrie(resourceType).getRoot());
+        final Node<AclContainer> found = Walker.preOrder(traversalFilter, trieData.getTrie(resourceType).getRoot());
         // if found is set we have the match.
-        if (found[0] != null) {
-            Optional<StandardAcl> optionalAcl = found[0].getContents().first(filter);
+        if (found != null) {
+            Optional<StandardAcl> optionalAcl = found.getContents().first(filter);
             if (optionalAcl.isPresent()) {
                 log.info("ACL found {}", optionalAcl);
                 return matchingRuleFromOptionalAcl(optionalAcl);
@@ -687,6 +683,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
                         }
                         return true;
                     };
+                    // populates aclBindinList by side effect.
                     Walker.preOrder(trieFilter, trie.getRoot());
                     break;
             }

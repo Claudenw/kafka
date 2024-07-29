@@ -29,6 +29,8 @@ import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
+import org.apache.kafka.server.immutable.ImmutableMap;
+import org.apache.kafka.server.immutable.ImmutableNavigableSet;
 import org.slf4j.Logger;
 
 import java.util.Collections;
@@ -36,6 +38,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
+import java.util.TreeSet;
 
 import static org.apache.kafka.common.resource.PatternType.LITERAL;
 import static org.apache.kafka.server.authorizer.AuthorizationResult.ALLOWED;
@@ -142,7 +145,7 @@ public class StandardAuthorizerData extends AbstractAuthorizerData {
     public StandardAuthorizerData copyWithNewAcls(Map<Uuid, StandardAcl> acls) {
         AclCache newCache = new AclCache();
         for (Map.Entry<Uuid, StandardAcl> entry : acls.entrySet()) {
-            aclCache.addAcl(entry.getKey(), entry.getValue());
+            newCache = newCache.addAcl(entry.getKey(), entry.getValue());
         }
 
         StandardAuthorizerData newData =  new StandardAuthorizerData(

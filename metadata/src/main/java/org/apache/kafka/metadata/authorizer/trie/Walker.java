@@ -41,41 +41,42 @@ public class Walker {
 
     /**
      * Applies the predicate to each node in a depth-first fashion.
-     * If the predicate returns false the walker will stop.
+     * If the predicate returns false the walker will stop and return the node.
      * @param predicate the Predicate to apply.
      * @param data the Node to start at.
-     * @return {@code true} if the predicate was applied to all the nodes, {@code false} otherwise.
+     * @return The node on which the predicate returned {@code false} or null if that did not occur.
      *
      */
-    public static <T> boolean depthFirst(Predicate<Node<T>> predicate, Node<T> data) {
+    public static <T> Node<T> depthFirst(Predicate<Node<T>> predicate, Node<T> data) {
         if (data.getChildren() != null) {
             for (Node<T> child : data.getChildren()) {
-                if (!depthFirst(predicate, child)) {
-                    return false;
-                }
+                Node<T> candidate = depthFirst(predicate, child);
+                if (candidate != null)
+                    return candidate;
             }
         }
-        return predicate.test(data);
+        return predicate.test(data) ? data : null;
     }
 
     /**
      * Applies the predicate to each node in a pre-order fashion.
-     * If the predicate returns false the walker will stop.
+     * If the predicate returns false the walker will stop and return the node.
      * @param predicate the Predicate to apply.
      * @param data the Node to start at.
-     * @return {@code true} if the predicate was applied to all the nodes, {@code false} otherwise.
+     * @return The node on which the predicate returned {@code false} or null if that did not occur.
      */
-    public static <T> boolean preOrder(Predicate<Node<T>> predicate, Node<T> data) {
+    public static <T> Node<T> preOrder(Predicate<Node<T>> predicate, Node<T> data) {
         if (!predicate.test(data)) {
-            return false;
+            return data;
         }
         if (data.getChildren() != null) {
             for (Node<T> child : data.getChildren()) {
-                if (!preOrder(predicate, child)) {
-                    return false;
+                Node<T> candidate = preOrder(predicate, child);
+                if (candidate != null){
+                    return candidate;
                 }
             }
         }
-        return true;
+        return null;
     }
 }
