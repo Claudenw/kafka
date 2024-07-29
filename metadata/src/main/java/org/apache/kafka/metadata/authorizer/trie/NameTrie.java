@@ -8,7 +8,7 @@ import java.util.function.Predicate;
 
 /**
  * The NameTrie is a Trie structure indexed by strings.
- * This trie is simplar to a Patricia trie in that some internal nodes have data associated with them.
+ * This trie is similar to a Patricia trie in that some internal nodes have data associated with them.
  * @param <T> the type of object held in the trie.
  */
 public class NameTrie<T>  {
@@ -20,6 +20,7 @@ public class NameTrie<T>  {
     /** A predicate to just execute a find without processing intermediate steps */
     private final Predicate<Node<T>> noExit = (x) -> false;
 
+    /** a consumer to increment the size counter */
     private final IntConsumer counter = i -> size += i;
 
     /**

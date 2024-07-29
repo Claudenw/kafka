@@ -18,14 +18,17 @@ package org.apache.kafka.metadata.authorizer.trie;
 
 /**
  * An object that holds a fragment of the resource name.
- * @param <T> the type of fragment.
+ * @param <T> the type of fragment.  It must implement Comparable..
  */
 @FunctionalInterface
 interface FragmentHolder<T extends Comparable<T>> extends Comparable<FragmentHolder<T>> {
+    /**
+     * Retrieves the fragment that this holder is holding.
+     * @return the fragment this holder is holding.
+     */
     T getFragment();
 
     default int compareTo(FragmentHolder<T> other) {
         return getFragment().compareTo(other.getFragment());
     }
-
 }

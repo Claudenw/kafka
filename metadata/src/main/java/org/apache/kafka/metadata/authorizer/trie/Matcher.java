@@ -19,8 +19,28 @@ package org.apache.kafka.metadata.authorizer.trie;
 
 import java.util.function.Predicate;
 
+/**
+ * An object that contains a fragment of an underlying pattern and is used to match a Node in a Trie.
+ * @param <T> the data held on the nodes.
+ */
 public interface Matcher<T> extends Predicate<Node<T>>, FragmentHolder<String> {
 
-    Matcher<T> advance(int advance);
+    /**
+     * Determines if a potential match is an actual match.  A valid match may not be null and the contents of the node
+     * may not empty.
+     *
+     * @param node the Node to check.
+     * @param <T>  the type of the object stored in the node.
+     * @return {@code true} if the {@code node} is a valid match.
+     */
+    static <T> boolean validMatch(Node<T> node) {
+        return node != null && node.getContents() != null;
+    }
 
+    /**
+     * Advance to the next matcher position in the underlying pattern.
+     * @param advance The number of pattern elements to advance.  (e.g. for Strings this is the number of chars to advance in the pattern)
+     * @return a new Matcher.  May <emp>NOT</emp> be the original instance modified.
+     */
+    Matcher<T> advance(int advance);
 }

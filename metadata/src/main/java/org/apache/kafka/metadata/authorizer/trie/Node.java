@@ -19,26 +19,26 @@ package org.apache.kafka.metadata.authorizer.trie;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.SortedSet;
 import java.util.Stack;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.function.IntConsumer;
 
 /**
- * The node definition for the Trie.  There are 5 types of nodes.
+ * The node definition for the Trie.  There are 4 types of nodes.
  * <ul>
  *     <li>Root node - There is only one and it has no parent node.</li>
- *     <li>Examplar - Only used for searching lists of nodes.  Has no parent and no "contents".</li>
  *     <li>Leaf nodes - Has no child nodes and have "contents" set.</li>
  *     <li>Pure inner node - has at least one child and does <em>not<</em> have "contents" set.</li>
  *     <li>Inner node - has at least one child and has "contents" set.</li>
  * </ul>
+ *
+ * This implementation only uses Strings for names but any Object for which an Inserter and a Matcher can be build
+ * may be implemented.
  */
-public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
+public class Node<T> implements FragmentHolder<String> {
     /**
      * the parent node.  Will be {@code null} in the {@code root} and in {@code exemplar}s.
      */
@@ -66,16 +66,6 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
         return new Node<>(null, "");
     }
 
-//    /**
-//     * Constructs an exemplar node for searching lists of nodes for matching fragments.
-//     * @param fragment The fragment of text to find.
-//     * @return A new exemplar node.
-//     * @param <T> The data stored in the Trie.
-//     */
-//    public static <T> Node<T> exemplar(String fragment) {
-//        return new Node<T>(null, fragment);
-//    }
-
     /**
      * Constructor.
      *
@@ -85,6 +75,7 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
     private Node(Node<T> parent, String fragment) {
         this.up = parent;
         this.fragment = fragment;
+        // add this node to the parent if the parent is provided.
         if (up != null) {
             if (up.children == null) {
                 up.children = new TreeSet<>();
@@ -149,6 +140,7 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
      *
      * @return the text fragment.
      */
+    @Override
     public String getFragment() {
         return fragment;
     }
@@ -181,6 +173,11 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
         return fragment.hashCode();
     }
 
+    /**
+     * Nodes are equal if their fragments are equal and they have the same parent.
+     * @param o the object to compare to.
+     * @return true if the other object equals this node.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -196,12 +193,14 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
      *     <li>The node may be added at any level in the Trie structure.</li>
      * </ol>
      *
+     * This is a recursive method.
+     *
      * @param counter  the consumer to increment when a new node is added.
      * @param inserter identifies the node to locate.
      * @return the added or found Node.
      */
     Node<T> addNodeFor(IntConsumer counter, StringInserter inserter) {
-        // If the inserter is emtpy then we have found the Node.
+        // If the inserter is empty then we have found the Node.
         if (inserter.isEmpty()) {
             if (this.contents == null) {
                 counter.accept(1);
@@ -211,16 +210,18 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
 
         // if the inserter is on a wildcard use wildcard only.
         if (inserter.isWildcard()) {
-            // create the exemplar for searching.
+            // search the children
             Node<T> test = null;
             if (children == null) {
                 children = new TreeSet<>();
             } else {
                 test = new Search().eq(inserter);
             }
+            // if there is no matching node then create it using this fragment.
             if (test == null) {
                 test = new Node<>(this, inserter.getFragment());
             }
+            // recurse adding the next fragment to the found node
             return test.addNodeFor(counter, inserter.advance(1));
         }
 
@@ -235,7 +236,12 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
                         return child.addNodeFor(counter, inserter.advance(child.fragment.length()));
                     }
 
-                    // child extends value so add value as child and original child as value's child.
+                    // child extends segment; insert segment as new child and original child as segments's child.
+                    //     A                              A
+                    //   +----+                         +----+
+                    //  BCD   CB   insert "AC" yields  BCD   C
+                    //                                       B
+                    //
                     if (child.fragment.startsWith(segment)) {
                         Node<T> newNode = new Node<>(this, segment);
                         // adds renamed child to newNode.children
@@ -245,6 +251,10 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
                     }
 
                     // check partial match case
+                    //  ABCD    insert ACAB  yields  A
+                    //                             +----+
+                    //                            BCD  CAB
+                    //
                     int limit = Math.min(child.fragment.length(), segment.length());
                     for (int i = 0; i < limit; i++) {
                         if (child.fragment.charAt(i) != segment.charAt(i)) {
@@ -265,18 +275,8 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
                 }
             }
         }
+        // no children; create child node of this node with the segment, and continue insert.
         return new Node<T>(this, segment).addNodeFor(counter, inserter.advance(segment.length()));
-    }
-
-    /**
-     * Determines if a potential match is an actual match.
-     *
-     * @param node the Node to check.
-     * @param <T>  the type of the object stored in the node.
-     * @return {@code true} if the {@code node} is a valid match.
-     */
-    static <T> boolean validMatch(Node<T> node) {
-        return node != null && node.getContents() != null;
     }
 
     /**
@@ -286,32 +286,35 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
      * @return The Node on which the find stopped, will be the "root" node if no match is found.
      */
     Node<T> findNodeFor(Matcher<T> matcher) {
+        // this node is a match return.
         if (matcher.test(this)) {
             return this;
         }
+
         Search searcher = new Search();
         if (children != null) {
             // find exact(ish) match first.  Will also find tail wildcard.
-            //Node<T> test = Node.exemplar(matcher.getSegment());
             Node<T> candidate = searcher.eq(matcher);
             if (candidate != null) {
                 return candidate;
             }
 
+            // find nodes lt matcher.  Navigate down the trie if there is a partial match.
             candidate = searcher.lt(matcher);
             if (candidate != null && matcher.getFragment().startsWith(candidate.getFragment())) {
                 candidate = candidate.findNodeFor(matcher.advance(candidate.fragment.length()));
-                if (validMatch(candidate)) {
+                if (Matcher.validMatch(candidate)) {
                     return candidate;
                 }
-
             }
 
+            // check for wildcard match after all other tests fail.
             candidate = WildcardRegistry.processWildcards(this, matcher);
-            if (validMatch(candidate)) {
+            if (Matcher.validMatch(candidate)) {
                 return candidate;
             }
         }
+        // nothing below this node so return this node.
         return this;
     }
 
@@ -360,7 +363,15 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
         return result;
     }
 
+    /**
+     * A helper class to perform searches on the children of the Node.
+     */
     public class Search {
+        /**
+         * Finds the child node who's fragment matches the fragmentHolder.
+         * @param fragmentHolder the fragment to search for.
+         * @return matching child node or {@code null} if none match.
+         */
         public Node<T> eq(FragmentHolder<String> fragmentHolder) {
             Node<T> test = new Node<>(null, fragmentHolder.getFragment());
             SortedSet<Node<T>> set = children.tailSet(test);
@@ -370,6 +381,11 @@ public class Node<T> implements FragmentHolder<String> { //Comparable<Node<T>> {
             return null;
         }
 
+        /**
+         * Finds the child node that is less than but closest to the fragmentHolder.
+         * @param fragmentHolder the fragment to search for.
+         * @return the nearest child less than the fragment or {@code null} if not found.
+         */
         public Node<T> lt(FragmentHolder<String> fragmentHolder) {
             Node<T> test = new Node<>(null, fragmentHolder.getFragment());
             SortedSet<Node<T>> set = children.headSet(test);

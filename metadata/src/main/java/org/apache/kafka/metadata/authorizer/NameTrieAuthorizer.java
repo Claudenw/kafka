@@ -28,14 +28,22 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
 
 import java.util.Collections;
 
+/**
+ * An Authorizer that extends the standard Authorizer by reimplementing the
+ * {@link #authorizeByResourceType(AuthorizableRequestContext, AclOperation, ResourceType)}
+ * method and providing a Trie implementation for the {@link AuthorizerData}.
+ */
 public class NameTrieAuthorizer extends StandardAuthorizer {
 
+    /**
+     * Constructor.
+     */
     public NameTrieAuthorizer() {
         super(NameTrieAuthorizerData.createEmpty());
     }
 
     /**
-     * Check if the caller is authorized to perform the given ACL operation on at least one
+     * Check if the caller is authorized to perform the given ACL operation on at least one
      * resource of the given type.
      *
      * Custom authorizer implementations should consider overriding this default implementation because:

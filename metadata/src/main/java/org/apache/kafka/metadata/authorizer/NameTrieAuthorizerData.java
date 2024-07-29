@@ -16,24 +16,20 @@
  */
 package org.apache.kafka.metadata.authorizer;
 
-
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.errors.AuthorizerNotReadyException;
-import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.metadata.authorizer.bitmap.BitMaps;
 import org.apache.kafka.metadata.authorizer.trie.NameTrie;
 import org.apache.kafka.metadata.authorizer.trie.Node;
-import org.apache.kafka.metadata.authorizer.trie.StringMatcher;
 import org.apache.kafka.metadata.authorizer.trie.Walker;
 import org.apache.kafka.metadata.authorizer.trie.WildcardRegistry;
 import org.apache.kafka.server.authorizer.Action;
@@ -42,24 +38,17 @@ import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.naming.Name;
-import java.lang.reflect.Array;
-import java.nio.file.attribute.AclEntry;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import static org.apache.kafka.common.acl.AclOperation.ALL;
 import static org.apache.kafka.common.acl.AclOperation.ALTER;
@@ -77,23 +66,32 @@ import static org.apache.kafka.server.authorizer.AuthorizationResult.ALLOWED;
 import static org.apache.kafka.server.authorizer.AuthorizationResult.DENIED;
 
 /**
- * A simplified NameTrieAuthorizerData
+ * An AuthorizerData implementation that stores the Authorization data in Tries based on the name of the resource in the ACL.
  */
-public class NameTrieAuthorizerData implements AuthorizerData {
+public class NameTrieAuthorizerData extends AbstractAuthorizerData {
 
+    /**
+     * A bitmap that maps the ALLOW permission on describe, read, write, delete and alter to the DESCRIBE operation.
+     * @see #operationFilter(AclOperation)
+     */
     private static final int DESCRIBE_MAP = BitMaps.getIntBit(DESCRIBE.code()) | BitMaps.getIntBit(READ.code()) | BitMaps.getIntBit(WRITE.code()) | BitMaps.getIntBit(DELETE.code()) | BitMaps.getIntBit(ALTER.code());
 
+    /**
+     * A bitmap that maps the ALLOW permission on describe_configs, and alter_configs to the DESCRIBE_CONFIGS operation.
+     * @see #operationFilter(AclOperation)
+     */
     private static final int CONFIGS_MAP = BitMaps.getIntBit(DESCRIBE_CONFIGS.code()) | BitMaps.getIntBit(ALTER_CONFIGS.code());
+
+    /** A predicate that matchers LITERAL patterns */
+    private static final Predicate<StandardAcl> literalPattern = acl -> acl.patternType() == LITERAL;
+    /** A predicate that matches PREFIXED patterns */
+    private static final Predicate<StandardAcl> prefixedPattern = acl -> acl.patternType() == PREFIXED;
 
     /**
      * The logger to use.
      */
     final Logger log;
 
-    /**
-     * Logger to use for auditing.
-     */
-    final Logger auditLog;
 
     /**
      * The current AclMutator.
@@ -120,6 +118,10 @@ public class NameTrieAuthorizerData implements AuthorizerData {
      */
     private final TrieData trieData;
 
+    /**
+     * Create an empty AuthorizerData instance.
+     * @return
+     */
     public static NameTrieAuthorizerData createEmpty() {
         return new NameTrieAuthorizerData(createLogger(-1),
                 null,
@@ -129,12 +131,13 @@ public class NameTrieAuthorizerData implements AuthorizerData {
                 new TrieData());
     }
 
+    /**
+     * Creates the logger.
+     * @param nodeId the node ID to crete the logger for.
+     * @return the logger.
+     */
     private static Logger createLogger(int nodeId) {
         return new LogContext("[StandardAuthorizer " + nodeId + "] ").logger(StandardAuthorizerData.class);
-    }
-
-    private static Logger auditLogger() {
-        return LoggerFactory.getLogger("kafka.authorizer.logger");
     }
 
     private NameTrieAuthorizerData(Logger log,
@@ -145,7 +148,6 @@ public class NameTrieAuthorizerData implements AuthorizerData {
                                    final TrieData trieData
                                    ) {
         this.log = log;
-        this.auditLog = auditLogger();
         this.aclMutator = aclMutator;
         this.loadingComplete = loadingComplete;
         this.superUsers = superUsers;
@@ -153,6 +155,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         this.trieData = trieData;
     }
 
+    @Override
     public NameTrieAuthorizerData copyWithNewAclMutator(AclMutator newAclMutator) {
         return new NameTrieAuthorizerData(
                 log,
@@ -163,6 +166,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
                 trieData);
     }
 
+    @Override
     public NameTrieAuthorizerData copyWithNewLoadingComplete(boolean newLoadingComplete) {
         return new NameTrieAuthorizerData(log,
                 aclMutator,
@@ -172,6 +176,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
                 trieData);
     }
 
+    @Override
     public NameTrieAuthorizerData copyWithNewConfig(int nodeId,
                                                     Set<String> newSuperUsers,
                                                     AuthorizationResult newDefaultResult) {
@@ -198,10 +203,12 @@ public class NameTrieAuthorizerData implements AuthorizerData {
     }
 
 
+    @Override
     public void addAcl(Uuid uuid, StandardAcl acl) {
         trieData.add(uuid, acl);
     }
 
+    @Override
     public void removeAcl(Uuid uuid) {
         trieData.remove(uuid);
     }
@@ -236,6 +243,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         return trieData.acls(filter);
     }
 
+    @Override
     public AuthorizationResult authorize(
             AuthorizableRequestContext requestContext,
             Action action
@@ -269,12 +277,9 @@ public class NameTrieAuthorizerData implements AuthorizerData {
      * @param action the Action we are seeking.
      * @return an Optional StandardACL that is present if a matching ACL is found.
      */
-    private Optional<StandardAcl> check(Node<NameTriePattern> node, Predicate<StandardAcl> aclFilter, Action action) {
+    private Optional<StandardAcl> check(Node<AclContainer> node, Predicate<StandardAcl> aclFilter, Action action) {
         return node.getContents() == null ? Optional.empty() : node.getContents().first(resourcePatternFilter(node, action).and(aclFilter));
     }
-
-    private static final Predicate<StandardAcl> literalPattern = acl -> acl.patternType() == LITERAL;
-    private static final Predicate<StandardAcl> prefixedPattern = acl -> acl.patternType() == PREFIXED;
 
     /**
      * Creates a predicate that will match the resource pattern type requried by the action against the node.
@@ -282,7 +287,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
      * @param action the action to find.
      * @return either {@code literalPattern} or {@code prefixPattern} depending on whether or not the node fragment is a wildcard.
      */
-    Predicate<StandardAcl> resourcePatternFilter(Node<NameTriePattern> node, Action action) {
+    Predicate<StandardAcl> resourcePatternFilter(Node<AclContainer> node, Action action) {
         return WildcardRegistry.isWildcard(node.getFragment()) || action.resourcePattern().name().endsWith(node.getFragment()) ? literalPattern : prefixedPattern;
     }
 
@@ -322,23 +327,41 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         };
     }
 
-    public AuthorizationResult authorizeByResourceType(KafkaPrincipal principal, String host, AclOperation op, ResourceType resourceType) {
-        MatchingRule rule = matchingRuleByResourceType(principal, host, op, resourceType);
-        logAuditMessage(principal, host, op, resourceType, rule);
+    /**
+     * performs an authorization check forto match any items of the resource type.
+     * @param principal the principal to limit the search by.
+     * @param host the host to limit the search by.
+     * @param operation the operation to limit the search to.
+     * @param resourceType the resource type to limit the search to.
+     * @return the authorization for the first matching resource.
+     */
+    AuthorizationResult authorizeByResourceType(KafkaPrincipal principal, String host, AclOperation operation, ResourceType resourceType) {
+        MatchingRule rule = matchingRuleByResourceType(principal, host, operation, resourceType);
+        logAuditMessage(principal, host, operation, resourceType, rule);
         return rule.result();
     }
-    private MatchingRule matchingRuleByResourceType(KafkaPrincipal principal, String host, AclOperation op, ResourceType resourceType) {
-        NameTrie<NameTriePattern> trie = trieData.getTrie(resourceType);
+
+    /**
+     * Performs a search and locates a matching rule for the resource type.
+     * @param principal the principal to limit the search by.
+     * @param host the host to limit the search by.
+     * @param operation the operation to limit the search to.
+     * @param resourceType the resource type to limit the search to.
+     * @return the matching rule.
+     */
+    private MatchingRule matchingRuleByResourceType(KafkaPrincipal principal, String host, AclOperation operation, ResourceType resourceType) {
+        NameTrie<AclContainer> trie = trieData.getTrie(resourceType);
         // principal filter
         final Predicate<StandardAcl> principalFilter = acl -> principal.equals(acl.kafkaPrincipal());
-        final Predicate<StandardAcl> aclFilter = operationFilter(op).and(hostFilter(host)).and(principalFilter);
+        final Predicate<StandardAcl> aclFilter = operationFilter(operation).and(hostFilter(host)).and(principalFilter);
         final Predicate<StandardAcl> filter = aclFilter.and(principalFilter);
 
 
+        // Define the filter used in the traversal of the trie.  If the contents matches the filter we are done.
         @SuppressWarnings("unchecked")
-        final Node<NameTriePattern> found[] = new Node[1];
-        Predicate<Node<NameTriePattern>> traversalFilter = n -> {
-            NameTriePattern contents = n.getContents();
+        final Node<AclContainer> found[] = new Node[1];
+        Predicate<Node<AclContainer>> traversalFilter = n -> {
+            AclContainer contents = n.getContents();
             if (contents != null) {
                 Optional<StandardAcl> opt = contents.first(filter);
                 if (opt.isPresent()) {
@@ -348,9 +371,9 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             }
             return true;
         };
-
-        Walker.inOrder(traversalFilter, trieData.getTrie(resourceType).getRoot());
-
+        // walk the trie looking for a match.
+        Walker.preOrder(traversalFilter, trieData.getTrie(resourceType).getRoot());
+        // if found is set we have the match.
         if (found[0] != null) {
             Optional<StandardAcl> optionalAcl = found[0].getContents().first(filter);
             if (optionalAcl.isPresent()) {
@@ -363,6 +386,13 @@ public class NameTrieAuthorizerData implements AuthorizerData {
     }
 
 
+    /**
+     * Find the matching Rule for the arguments.
+     * @param matchingPrincipals the principals to accept.
+     * @param host the host to limit the search by.
+     * @param action the action to search for.
+     * @return the Matching rule for the search.
+     */
     private MatchingRule findAclRule(
             Set<KafkaPrincipal> matchingPrincipals,
             String host,
@@ -379,7 +409,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         Predicate<StandardAcl> permissionFilter = acl -> acl.permissionType() == DENY;
 
         final Predicate<StandardAcl> exitFilter = permissionFilter.and(aclFilter);
-        Node<NameTriePattern> target = trieData.findNode(action.resourcePattern(), n -> check(n, exitFilter, action).isPresent());
+        Node<AclContainer> target = trieData.findNode(action.resourcePattern(), n -> check(n, exitFilter, action).isPresent());
         // if the root of the tree -> no matches so return noAclRule
         if (target.getFragment().equals("")) {
             log.info("No match for {} {} {}", action, host, matchingPrincipals);
@@ -398,7 +428,7 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         permissionFilter = acl -> acl.permissionType() == ALLOW;
         final Predicate<StandardAcl> acceptFilter = permissionFilter.and(prefixedPattern).and(aclFilter);
         while (!target.getFragment().equals("")) {
-            NameTriePattern pattern = target.getContents();
+            AclContainer pattern = target.getContents();
             if (pattern != null) {
                 optionalAcl = pattern.first(ALLOW, acceptFilter);
                 if (optionalAcl.isPresent()) {
@@ -413,110 +443,24 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         return MatchingRuleBuilder.DENY_RULE;
     }
 
+    /**
+     * Creates a matching rule from an Optional ACL.
+     * @param optionalAcl the optional ACL must be present.
+     * @return a matching rule.
+     */
     private MatchingRule matchingRuleFromOptionalAcl(Optional<StandardAcl> optionalAcl) {
         StandardAcl acl = optionalAcl.get();
         return new MatchingAclRule(acl, acl.permissionType().equals(ALLOW) ? ALLOWED : DENIED);
     }
 
-    private void logAuditMessage(
-            KafkaPrincipal principal,
-            AuthorizableRequestContext requestContext,
-            Action action,
-            MatchingRule rule
-    ) {
-        switch (rule.result()) {
-            case ALLOWED:
-                // logIfAllowed is true if access is granted to the resource as a result of this authorization.
-                // In this case, log at debug level. If false, no access is actually granted, the result is used
-                // only to determine authorized operations. So log only at trace level.
-                if (action.logIfAllowed() && auditLog.isDebugEnabled()) {
-                    auditLog.debug(buildAuditMessage(principal, requestContext, action, rule));
-                } else if (auditLog.isTraceEnabled()) {
-                    auditLog.trace(buildAuditMessage(principal, requestContext, action, rule));
-                }
-                return;
-
-            case DENIED:
-                // logIfDenied is true if access to the resource was explicitly requested. Since this is an attempt
-                // to access unauthorized resources, log at info level. If false, this is either a request to determine
-                // authorized operations or a filter (e.g for regex subscriptions) to filter out authorized resources.
-                // In this case, log only at trace level.
-                if (action.logIfDenied()) {
-                    auditLog.info(buildAuditMessage(principal, requestContext, action, rule));
-                } else if (auditLog.isTraceEnabled()) {
-                    auditLog.trace(buildAuditMessage(principal, requestContext, action, rule));
-                }
-        }
-    }
-    private void logAuditMessage(
-            //logAuditMessage(principal, host, op, resourceType, rule);
-            KafkaPrincipal principal,
-            String host,
-            AclOperation op,
-            ResourceType resourceType,
-            MatchingRule rule
-    ) {
-        switch (rule.result()) {
-            case ALLOWED:
-                if (auditLog.isTraceEnabled()) {
-                    auditLog.trace(buildAuditMessage(principal, host, op, resourceType, rule));
-                }
-                return;
-
-            case DENIED:
-                if (auditLog.isTraceEnabled()) {
-                    auditLog.trace(buildAuditMessage(principal, host, op, resourceType, rule));
-                }
-        }
-    }
-
-    private String buildAuditMessage(
-            KafkaPrincipal principal,
-            String host,
-            AclOperation op,
-            ResourceType resourceType,
-            MatchingRule rule
-    ) {
-        StringBuilder bldr = new StringBuilder();
-        bldr.append("Principal = ").append(principal);
-        bldr.append(" is ").append(rule.result() == ALLOWED ? "Allowed" : "Denied");
-        bldr.append(" operation = ").append(op);
-        bldr.append(" from host = ").append(host);
-        bldr.append(" for resource type = ").append(resourceType.name());
-        bldr.append(" based on rule ").append(rule);
-        return bldr.toString();
-    }
-
-    private String buildAuditMessage(
-            KafkaPrincipal principal,
-            AuthorizableRequestContext context,
-            Action action,
-            MatchingRule rule
-    ) {
-        StringBuilder bldr = new StringBuilder();
-        bldr.append("Principal = ").append(principal);
-        bldr.append(" is ").append(rule.result() == ALLOWED ? "Allowed" : "Denied");
-        bldr.append(" operation = ").append(action.operation());
-        bldr.append(" from host = ").append(context.clientAddress().getHostAddress());
-        bldr.append(" on resource = ");
-        appendResourcePattern(action.resourcePattern(), bldr);
-        bldr.append(" for request = ").append(ApiKeys.forId(context.requestType()).name);
-        bldr.append(" with resourceRefCount = ").append(action.resourceReferenceCount());
-        bldr.append(" based on rule ").append(rule);
-        return bldr.toString();
-    }
-
-    private void appendResourcePattern(ResourcePattern resourcePattern, StringBuilder bldr) {
-        bldr.append(SecurityUtils.resourceTypeName(resourcePattern.resourceType()))
-                .append(":")
-                .append(resourcePattern.patternType())
-                .append(":")
-                .append(resourcePattern.name());
-    }
-
+    /**
+     * A container for ACLs that are sorted by permission (Deny first), PatternType, Operation, principal and host.
+     * Since these are used on Nodes the resource type and resource name have already been accounted for.
+     */
     private static class AclContainer {
 
-        Comparator<AclPermissionType> permissionOrder = new Comparator<AclPermissionType>() {
+        /** A custom comparator to put DENY first in the list of permissions */
+        private Comparator<AclPermissionType> permissionOrder = new Comparator<AclPermissionType>() {
             @Override
             public int compare(AclPermissionType aclPermissionType, AclPermissionType other) {
                 if (aclPermissionType == DENY) {
@@ -526,7 +470,8 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             }
         };
 
-        Comparator<StandardAcl> partialOrder = (a, b) -> {
+        /** A Comparator to order the ACLs in the container by permission (Deny first), PatternType, Operation, principal and host */
+        private Comparator<StandardAcl> partialOrder = (a, b) -> {
             int result = permissionOrder.compare(a.permissionType(), b.permissionType());
             if (result != 0) return result;
             result = a.patternType().compareTo(b.patternType());
@@ -539,33 +484,47 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             return result;
         };
 
+        /** The ACLs in th econtainer */
         private final SortedSet<StandardAcl> partialAcls;
 
+        /**
+         * Constructs a container with a single ACL.
+         * @param acl the Acl to put in the container.
+         */
         AclContainer(StandardAcl acl) {
             partialAcls = new TreeSet<>(partialOrder);
             partialAcls.add(acl);
         }
 
-        AclContainer(Collection<StandardAcl> acls) {
-            partialAcls = new TreeSet<>(partialOrder);
-            partialAcls.addAll(acls);
-        }
-
-
+        /**
+         * Adds an ACL to the container.
+         * @param acl the ACL to add.
+         */
         public void add(StandardAcl acl) {
             partialAcls.add(acl);
         }
 
+        /**
+         * Removes an ACL from the container.
+         * @param acl the ACL to remove.
+         */
         public void remove(StandardAcl acl) {
             partialAcls.remove(acl);
         }
 
-
+        /**
+         * Returns {@code true} if the container is empty.
+         * @return {@code true} if the container is empty.
+         */
         public boolean isEmpty() {
             return partialAcls.isEmpty();
         }
 
-
+        /**
+         * Given the predicate find the first ACL that matches.
+         * @param filter the predicate to test the ACL
+         * @return an Optional StandardACL containing the matching ACL or is empty.
+         */
         public Optional<StandardAcl> first(Predicate<StandardAcl> filter) {
             for (StandardAcl acl : partialAcls) {
                 if (filter.test(acl)) {
@@ -575,6 +534,12 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             return Optional.empty();
         }
 
+        /**
+         * Find the first ACL of the permission type.
+         * @param permission the permission type to find.
+         * @param filter the predicate the ACL must match.
+         * @return an Optional StandardACL containing the matching ACL or is empty.
+         */
         public Optional<StandardAcl> first(AclPermissionType permission, Predicate<StandardAcl> filter) {
             StandardAcl exemplar = new StandardAcl(
                     null,
@@ -593,51 +558,38 @@ public class NameTrieAuthorizerData implements AuthorizerData {
         }
     }
 
-
-    private static class NameTriePattern {
-
-        AclContainer acls;
-
-        NameTriePattern(StandardAcl acl) {
-            acls = new AclContainer(acl);
-
-        }
-
-        public void add(StandardAcl acl) {
-            acls.add(acl);
-        }
-
-        public void remove(StandardAcl acl) {
-            acls.remove(acl);
-        }
-
-        public boolean isEmpty() {
-            return acls.isEmpty();
-        }
-
-        public Optional<StandardAcl> first(Predicate<StandardAcl> filter) {
-            return acls.first(filter);
-        }
-
-        public Optional<StandardAcl> first(AclPermissionType permission, Predicate<StandardAcl> filter) {
-            return acls.first(permission, filter);
-        }
-    }
-
+    /**
+     * The container for all the Tries.  There is one Trie for each ResourceType.
+     */
     private static class TrieData {
-        private final Map<ResourceType, NameTrie<NameTriePattern>> tries;
-
+        /**
+         * The map of ResourceType to Trie
+         */
+        private final Map<ResourceType, NameTrie<AclContainer>> tries;
+        /**
+         * The map of UUid to ACL
+         */
         private final Map<Uuid, StandardAcl> uuidMap;
 
+        /**
+         * The lotter for this operation class
+         */
+        private static final Logger log = LoggerFactory.getLogger(TrieData.class);
 
-        private static final Logger log = LoggerFactory.getLogger(NameTriePattern.class);
-
+        /**
+         * Creates an empty TriData structure.
+         */
         TrieData() {
             log.info("Constructing TrieData");
             tries = new HashMap<>();
             uuidMap = new HashMap<>();
         }
 
+        /**
+         * Create a TrieData structure from a collection of Acls.
+         *
+         * @param acls a map of Acl Uuid to the associated StandardAcl.
+         */
         TrieData(Map<Uuid, StandardAcl> acls) {
             this();
             for (Map.Entry<Uuid, StandardAcl> entry : acls.entrySet()) {
@@ -645,19 +597,25 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             }
         }
 
+        /**
+         * Add an ACL to the data.
+         *
+         * @param uuid the Uuid associated with the ACL>
+         * @param acl  the ACL to add.
+         */
         public void add(Uuid uuid, StandardAcl acl) {
             uuidMap.put(uuid, acl);
-            NameTrie<NameTriePattern> trie = tries.get(acl.resourceType());
+            NameTrie<AclContainer> trie = tries.get(acl.resourceType());
             if (trie == null) {
                 log.info("creating trie for resource type {}.", acl.resourceType());
                 trie = new NameTrie<>();
                 tries.put(acl.resourceType(), trie);
-                NameTriePattern pattern = new NameTriePattern(acl);
+                AclContainer pattern = new AclContainer(acl);
                 trie.put(acl.resourceName(), pattern);
             } else {
-                NameTriePattern pattern = trie.get(acl.resourceName());
+                AclContainer pattern = trie.get(acl.resourceName());
                 if (pattern == null) {
-                    pattern = new NameTriePattern(acl);
+                    pattern = new AclContainer(acl);
                     trie.put(acl.resourceName(), pattern);
                 } else {
                     pattern.add(acl);
@@ -665,14 +623,19 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             }
         }
 
+        /**
+         * Removes an ACL fro mthe data.
+         *
+         * @param uuid the Uuid associated with the ACL to remove.
+         */
         public void remove(Uuid uuid) {
             StandardAcl acl = uuidMap.get(uuid);
             if (acl != null) {
                 uuidMap.remove(uuid);
-                NameTrie<NameTriePattern> trie = tries.get(acl.resourceType());
+                NameTrie<AclContainer> trie = tries.get(acl.resourceType());
                 if (trie != null) {
                     log.debug("removing trie entry for " + acl);
-                    NameTriePattern pattern = trie.get(acl.resourceName());
+                    AclContainer pattern = trie.get(acl.resourceName());
                     if (pattern != null) {
                         pattern.remove(acl);
                         if (pattern.isEmpty()) {
@@ -684,18 +647,56 @@ public class NameTrieAuthorizerData implements AuthorizerData {
             }
         }
 
+        /**
+         * Get an iterable of AclBindings over all the ACLs in the data after applying the filter.
+         * Only ACLs that pass the filter will be included.
+         *
+         * @param filter the filter to exclude ACLs.
+         * @return an Iterable of AclBindings that pass the filter.
+         */
         public Iterable<AclBinding> acls(AclBindingFilter filter) {
-            //return uuidMap.values().stream().map(StandardAcl::toBinding).filter(filter::matches).collect(Collectors.toList());
             List<AclBinding> aclBindingList = new ArrayList<>();
-            uuidMap.values().forEach(acl -> {
-                AclBinding aclBinding = acl.toBinding();
-                if (filter.matches(aclBinding)) {
-                    aclBindingList.add(aclBinding);
-                }
-            });
+            switch (filter.patternFilter().resourceType()) {
+                case UNKNOWN:
+                    break;
+                case ANY:
+
+                    uuidMap.values().forEach(acl -> {
+                        AclBinding aclBinding = acl.toBinding();
+                        if (filter.matches(aclBinding)) {
+                            aclBindingList.add(aclBinding);
+                        }
+                    });
+                    break;
+                case USER:
+                case GROUP:
+                case TOPIC:
+                case CLUSTER:
+                case DELEGATION_TOKEN:
+                case TRANSACTIONAL_ID:
+                    NameTrie<AclContainer> trie = tries.get(filter.patternFilter().resourceType());
+                    Predicate<Node<AclContainer>> trieFilter = n -> {
+                        AclContainer container = n.getContents();
+                        if (container != null) {
+                            for (StandardAcl acl : container.partialAcls) {
+                                AclBinding aclBinding = acl.toBinding();
+                                if (filter.matches(aclBinding)) {
+                                    aclBindingList.add(aclBinding);
+                                }
+                            }
+                        }
+                        return true;
+                    };
+                    Walker.preOrder(trieFilter, trie.getRoot());
+                    break;
+            }
             return aclBindingList;
         }
 
+        /**
+         * Return the number of ACLs in the data.
+         * @return
+         */
         public int count() {
             return uuidMap.size();
         }
@@ -706,18 +707,19 @@ public class NameTrieAuthorizerData implements AuthorizerData {
          * @param exit the predicate that forces a stop/exit from the search.
          * @return the Node that matches or caused an exit.
          */
-        public Node<NameTriePattern> findNode(ResourcePattern resourcePattern, Predicate<Node<NameTriePattern>> exit) {
-            NameTrie<NameTriePattern> trie = tries.get(resourcePattern.resourceType());
+        public Node<AclContainer> findNode(ResourcePattern resourcePattern, Predicate<Node<AclContainer>> exit) {
+            NameTrie<AclContainer> trie = tries.get(resourcePattern.resourceType());
             if (trie == null) {
                 log.info("No trie found for {}", resourcePattern.resourceType());
                 return Node.makeRoot();
             }
-            Node<NameTriePattern> n = trie.findNode(resourcePattern.name(), exit);
+            Node<AclContainer> n = trie.findNode(resourcePattern.name(), exit);
             log.debug("Returning {}.", n);
             return n;
         }
 
-        public NameTrie<NameTriePattern> getTrie(ResourceType resourceType) {
+
+        private NameTrie<AclContainer> getTrie(ResourceType resourceType) {
             return tries.get(resourceType);
         }
     }

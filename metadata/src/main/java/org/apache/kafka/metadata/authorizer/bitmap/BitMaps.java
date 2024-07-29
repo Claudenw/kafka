@@ -20,12 +20,13 @@ package org.apache.kafka.metadata.authorizer.bitmap;
 
 
 /**
- * Contains functions to convert {@code int} indices into Bloom filter bit positions and visa versa.
+ * Contains functions to convert {@code int} indices into Bitmap bit positions and visa versa.
  *
  * <p>The functions view an array of longs as a collection of bit maps each containing 64 bits. The bits are arranged
- * in memory as a little-endian long value. This matches the requirements of the BitMapExtractor interface.</p>
+ * in memory as a little-endian long value. </p>
  *
- * @since 4.5
+ * This code is based on the BitMaps code in Apache Commons Collections.
+ * @see <a href="https://commons.apache.org/proper//commons-collections/apidocs/org/apache/commons/collections4/bloomfilter/BitMaps.html">Apache Commons Collections Bitmaps</a>
  */
 public class BitMaps {
     /** A bit shift to apply to an integer to divided by 32 (2^5). */

@@ -33,7 +33,6 @@ import org.apache.kafka.server.authorizer.Action;
 import org.apache.kafka.server.authorizer.AuthorizableRequestContext;
 import org.apache.kafka.server.authorizer.AuthorizationResult;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.Iterator;
@@ -51,17 +50,12 @@ import static org.apache.kafka.server.authorizer.AuthorizationResult.DENIED;
  *
  * The class is not thread-safe.
  */
-public class StandardAuthorizerData implements AuthorizerData {
+public class StandardAuthorizerData extends AbstractAuthorizerData {
 
     /**
      * The logger to use.
      */
     final Logger log;
-
-    /**
-     * Logger to use for auditing.
-     */
-    final Logger auditLog;
 
     /**
      * The current AclMutator.
@@ -94,10 +88,6 @@ public class StandardAuthorizerData implements AuthorizerData {
         return new LogContext("[StandardAuthorizer " + nodeId + "] ").logger(StandardAuthorizerData.class);
     }
 
-    private static Logger auditLogger() {
-        return LoggerFactory.getLogger("kafka.authorizer.logger");
-    }
-
     static StandardAuthorizerData createEmpty() {
         return new StandardAuthorizerData(createLogger(-1),
             null,
@@ -114,7 +104,6 @@ public class StandardAuthorizerData implements AuthorizerData {
                                    AuthorizationResult defaultResult,
                                    AclCache aclCache) {
         this.log = log;
-        this.auditLog = auditLogger();
         this.aclMutator = aclMutator;
         this.loadingComplete = loadingComplete;
         this.superUsers = superUsers;
@@ -242,64 +231,6 @@ public class StandardAuthorizerData implements AuthorizerData {
         }
         logAuditMessage(principal, requestContext, action, rule);
         return rule.result();
-    }
-
-    private String buildAuditMessage(
-        KafkaPrincipal principal,
-        AuthorizableRequestContext context,
-        Action action,
-        MatchingRule rule
-    ) {
-        StringBuilder bldr = new StringBuilder();
-        bldr.append("Principal = ").append(principal);
-        bldr.append(" is ").append(rule.result() == ALLOWED ? "Allowed" : "Denied");
-        bldr.append(" operation = ").append(action.operation());
-        bldr.append(" from host = ").append(context.clientAddress().getHostAddress());
-        bldr.append(" on resource = ");
-        appendResourcePattern(action.resourcePattern(), bldr);
-        bldr.append(" for request = ").append(ApiKeys.forId(context.requestType()).name);
-        bldr.append(" with resourceRefCount = ").append(action.resourceReferenceCount());
-        bldr.append(" based on rule ").append(rule);
-        return bldr.toString();
-    }
-
-    private void appendResourcePattern(ResourcePattern resourcePattern, StringBuilder bldr) {
-        bldr.append(SecurityUtils.resourceTypeName(resourcePattern.resourceType()))
-            .append(":")
-            .append(resourcePattern.patternType())
-            .append(":")
-            .append(resourcePattern.name());
-    }
-
-    private void logAuditMessage(
-        KafkaPrincipal principal,
-        AuthorizableRequestContext requestContext,
-        Action action,
-        MatchingRule rule
-    ) {
-        switch (rule.result()) {
-            case ALLOWED:
-                // logIfAllowed is true if access is granted to the resource as a result of this authorization.
-                // In this case, log at debug level. If false, no access is actually granted, the result is used
-                // only to determine authorized operations. So log only at trace level.
-                if (action.logIfAllowed() && auditLog.isDebugEnabled()) {
-                    auditLog.debug(buildAuditMessage(principal, requestContext, action, rule));
-                } else if (auditLog.isTraceEnabled()) {
-                    auditLog.trace(buildAuditMessage(principal, requestContext, action, rule));
-                }
-                return;
-
-            case DENIED:
-                // logIfDenied is true if access to the resource was explicitly requested. Since this is an attempt
-                // to access unauthorized resources, log at info level. If false, this is either a request to determine
-                // authorized operations or a filter (e.g for regex subscriptions) to filter out authorized resources.
-                // In this case, log only at trace level.
-                if (action.logIfDenied()) {
-                    auditLog.info(buildAuditMessage(principal, requestContext, action, rule));
-                } else if (auditLog.isTraceEnabled()) {
-                    auditLog.trace(buildAuditMessage(principal, requestContext, action, rule));
-                }
-        }
     }
 
     private MatchingRule findAclRule(
@@ -434,5 +365,4 @@ public class StandardAuthorizerData implements AuthorizerData {
     public Iterable<AclBinding> acls(AclBindingFilter filter) {
         return aclCache.acls(filter);
     }
-
 }

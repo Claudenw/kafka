@@ -26,23 +26,26 @@ import java.util.function.Predicate;
  *
  *     As an example a predicate that counted nodes in the trie could be implemented as follows:
  *
- *     {@ode
+ *     <pre>
  *          final int[] count = new int[] { 0 };
  *          Predicate<Node<T>> pred = n -> {
  *              count[0]++;
  *              return true;
  *         }
- *     }
+ *     </pre>
  * </p>
+ *
+ * @see <a href='https://en.wikipedia.org/wiki/Tree_traversal'>Tree Traversal [Wikipedia]</a>
  */
 public class Walker {
 
     /**
-     * Applies the predicate to each node in a depth first fashion.
+     * Applies the predicate to each node in a depth-first fashion.
      * If the predicate returns false the walker will stop.
      * @param predicate the Predicate to apply.
      * @param data the Node to start at.
      * @return {@code true} if the predicate was applied to all the nodes, {@code false} otherwise.
+     *
      */
     public static <T> boolean depthFirst(Predicate<Node<T>> predicate, Node<T> data) {
         if (data.getChildren() != null) {
@@ -56,19 +59,19 @@ public class Walker {
     }
 
     /**
-     * Applies the predicate to each node in a depth first fashion.
+     * Applies the predicate to each node in a pre-order fashion.
      * If the predicate returns false the walker will stop.
      * @param predicate the Predicate to apply.
      * @param data the Node to start at.
      * @return {@code true} if the predicate was applied to all the nodes, {@code false} otherwise.
      */
-    public static <T> boolean inOrder(Predicate<Node<T>> predicate, Node<T> data) {
+    public static <T> boolean preOrder(Predicate<Node<T>> predicate, Node<T> data) {
         if (!predicate.test(data)) {
             return false;
         }
         if (data.getChildren() != null) {
             for (Node<T> child : data.getChildren()) {
-                if (!inOrder(predicate, child)) {
+                if (!preOrder(predicate, child)) {
                     return false;
                 }
             }

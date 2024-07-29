@@ -1,21 +1,42 @@
 package org.apache.kafka.metadata.authorizer.trie;
 
-import java.util.SortedSet;
-
 import static java.lang.String.format;
 
+/**
+ * The registry of all wildcard patterns.
+ */
 public class WildcardRegistry {
     /* list of wildcard strings.  Order is important.  Most specific match first */
     public static final String[] PATTERNS = {"?", "*"};
 
-    public static boolean isWildcard(String s) {
-        return s.length() == 1 && isWildcard(s.charAt(0));
+    /**
+     * Returns {@code true} if the string is a wildcard.
+     * @param str the String to check.
+     * @return {@code true} if the string is a wildcard.
+     */
+    public static boolean isWildcard(String str) {
+        return str.length() == 1 && isWildcard(str.charAt(0));
     }
 
-    public static boolean isWildcard(char c) {
-        return "*?".indexOf(c) > -1;
+    /**
+     * Returns {@code true} if the char is a wildcard.
+     * @param ch the char to check.
+     * @return {@code true} if the char is a wildcard.
+     */
+    public static boolean isWildcard(char ch) {
+        return "*?".indexOf(ch) > -1;
     }
 
+    /**
+     * Returns a wildcard adjusted pattern as follows:
+     * <ul>
+     *     <li>If the pattern starts with a wildcard - return the wild card.</li>
+     *     <li>If the pattern does not contain a wildcard - return the pattern</li>
+     *     <li>else return the fragment of the patten from the start but not including the wildcard.</li>
+     * </ul>
+     * @param pattern the pattern to get the segment from.
+     * @return The wildcard adjusted pattern.
+     */
     public static String getSegment(String pattern) {
         int splat = pattern.indexOf('*');
         int quest = pattern.indexOf('?');
@@ -29,24 +50,38 @@ public class WildcardRegistry {
         return pos == -1 ? pattern : pattern.substring(0, pos);
     }
 
+    /**
+     * Apply any wildcards in the matcher to a child search on the node.
+     * @param parent the node containing the children.
+     * @param matcher the matcher to process.
+     * @return matching node or {@code null} if there is no match.
+     * @param <T> the type of data in the Trie.
+     */
     public static <T> Node<T> processWildcards(Node<T> parent, Matcher<T> matcher) {
+        // create a searcher on the parent node.
         Node<T>.Search searcher = parent.new Search();
         Node<T> match = null;
 
+        /** Check the wildcards from most specific to least specific */
         for (String wildcard : PATTERNS) {
+            // search for and exact match for the wildcard.
             Node<T> child = searcher.eq(() -> wildcard);
             if (child != null) {
                 switch (wildcard) {
                     case "?":
+                        // with a single character wildcard just skip on position in the matcher and
+                        // look in the children of the wildcard node.
                         match = child.findNodeFor(matcher.advance(1));
-                        if (Node.validMatch(match)) {
+                        if (Matcher.validMatch(match)) {
                             return match;
                         }
                         break;
                     case "*":
+                        // for multi character wildcards we have to skip 1 to n-1 characters looking for
+                        // the match.
                         for (int advance = 1; advance < matcher.getFragment().length(); advance++) {
                             match = child.findNodeFor(matcher.advance(advance));
-                            if (Node.validMatch(match)) {
+                            if (Matcher.validMatch(match)) {
                                 return match;
                             }
                         }

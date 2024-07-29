@@ -20,6 +20,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
+import org.apache.kafka.common.errors.AuthorizerNotReadyException;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.authorizer.Action;
@@ -44,27 +45,32 @@ import static org.apache.kafka.common.acl.AclPermissionType.ALLOW;
 import static org.apache.kafka.server.authorizer.AuthorizationResult.ALLOWED;
 import static org.apache.kafka.server.authorizer.AuthorizationResult.DENIED;
 
+/**
+ * THe interface that describes the data used by the {@link StandardAuthorizer}.  This is defiens the structure of the
+ * data as stored in the Authorizer.
+ */
 public interface AuthorizerData {
     /**
      * The host or name string used in ACLs that match any host or name.
      */
     String WILDCARD = "*";
-    /**
-     * The principal entry used in ACLs that match any principal.
-     */
+    /** The principal entry used in ACLs that match any principal. */
     String WILDCARD_PRINCIPAL = "User:*";
-    KafkaPrincipal WILDCARD_KAFKA_PRINCIPAL = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "*");
-    /**
-     * The set of operations which imply DESCRIBE permission, when used in an ALLOW acl.
-     */
-    Set<AclOperation> IMPLIES_DESCRIBE = Collections.unmodifiableSet(
-        EnumSet.of(DESCRIBE, READ, WRITE, DELETE, ALTER));
-    /**
-     * The set of operations which imply DESCRIBE_CONFIGS permission, when used in an ALLOW acl.
-     */
-    Set<AclOperation> IMPLIES_DESCRIBE_CONFIGS = Collections.unmodifiableSet(
-        EnumSet.of(DESCRIBE_CONFIGS, ALTER_CONFIGS));
 
+    /** The KafkaPrincipal equivalend to the {@link #WILDCARD_PRINCIPAL} */
+    KafkaPrincipal WILDCARD_KAFKA_PRINCIPAL = new KafkaPrincipal(KafkaPrincipal.USER_TYPE, "*");
+    /** The set of operations which imply DESCRIBE permission, when used in an ALLOW acl. */
+    Set<AclOperation> IMPLIES_DESCRIBE = Collections.unmodifiableSet(EnumSet.of(DESCRIBE, READ, WRITE, DELETE, ALTER));
+    /** The set of operations which imply DESCRIBE_CONFIGS permission, when used in an ALLOW acl. */
+    Set<AclOperation> IMPLIES_DESCRIBE_CONFIGS = Collections.unmodifiableSet(EnumSet.of(DESCRIBE_CONFIGS, ALTER_CONFIGS));
+
+    /**
+     * Finds the AuthorizationResult for arguments.
+     * @param action the action to attempt.
+     * @param requestContext the context for the request.
+     * @param acl the ACL to search for.
+     * @return
+     */
     static AuthorizationResult findResult(Action action,
                                           AuthorizableRequestContext requestContext,
                                           StandardAcl acl) {
@@ -76,6 +82,11 @@ public interface AuthorizerData {
         );
     }
 
+    /**
+     * Extracts the @{code KafkaPrincipla} from the context.
+     * @param context the context.
+     * @return the Kafka principal found in the context or one derived from it.
+     */
     static KafkaPrincipal baseKafkaPrincipal(AuthorizableRequestContext context) {
         KafkaPrincipal sessionPrincipal = context.principal();
         return sessionPrincipal.getClass().equals(KafkaPrincipal.class)
@@ -83,6 +94,12 @@ public interface AuthorizerData {
             : new KafkaPrincipal(sessionPrincipal.getPrincipalType(), sessionPrincipal.getName());
     }
 
+    /**
+     * Creates a set of {@code KafkaPrincipals} from the context set.  The set includes the
+     * {@link #WILDCARD_KAFKA_PRINCIPAL}.
+     * @param context the context to extract the principals from.
+     * @return the set of Kafka principals.
+     */
     static Set<KafkaPrincipal> matchingPrincipals(AuthorizableRequestContext context) {
         KafkaPrincipal sessionPrincipal = context.principal();
         KafkaPrincipal basePrincipal = sessionPrincipal.getClass().equals(KafkaPrincipal.class)
@@ -93,8 +110,8 @@ public interface AuthorizerData {
 
     /**
      * Determine what the result of applying an ACL to the given action and request
-     * context should be. Note that this function assumes that the resource name matches;
-     * the resource name is not checked here.
+     * context should be. Note that this function assumes that the resource name matches.
+     * The resource name is not checked here.
      *
      * @param action             The input action.
      * @param matchingPrincipals The set of input matching principals
@@ -146,43 +163,127 @@ public interface AuthorizerData {
     }
 
 
+    /**
+     * Creates a copy of this AuthorizerData with the loading complete flag set.
+     * @param newLoadingComplete the value to set the loading complete flag to.
+     * @return A potentially new AuthorizerData with the loading complete flag set.
+     */
     AuthorizerData copyWithNewLoadingComplete(boolean newLoadingComplete);
 
+    /**
+     * Creates a copy of this AuthorizerDaa with the new config.
+     * @param nodeId the node ID for the copy.
+     * @param newSuperUsers the list of super users.
+     * @param newDefaultResult the default result if no specific authorization is found.
+     * @return A potentially new AuthorizerData with the configuration set as specified.
+     */
     AuthorizerData copyWithNewConfig(int nodeId,
                                              Set<String> newSuperUsers,
                                              AuthorizationResult newDefaultResult) ;
 
+    /**
+     * Creates a copy of this AuthorizerDaa with the new Acls.
+     * @param acls A map containing Uuids ahd their associated StandardAcl.
+     * @return A potentially new AuthorizerData with the internal data structure containing the Acls and Uuids.
+     */
     AuthorizerData copyWithNewAcls(Map<Uuid, StandardAcl> acls);
 
+
+    /**
+     * Creates a copy of this AuthorizerDaa with the new AclMutator
+     * @param newAclMutator The new AclMutator to use when modifying the ACLs.
+     * @return A potentially new AuthorizerData with the internal data structure containing the Acls and Uuids.
+     */
     AuthorizerData copyWithNewAclMutator(AclMutator newAclMutator);
 
+    /**
+     * Adds an ACL and associated Uuid to the data structure.
+     * @param id the Uuid to add.
+     * @param acl the StandardAcl associated with the Uuid.
+     */
     void addAcl(Uuid id, StandardAcl acl);
 
+    /**
+     * Remove an ACL and associated Uuid from the data structure.
+     * @param id the Uuid for the ACL to remove.
+     */
     void removeAcl(Uuid id);
 
+    /**
+     * Gets the set of super users for this data structure.  This is the set of superusers provided in {@link #copyWithNewConfig(int, Set, AuthorizationResult)}
+     * or as default during the construction of this authorizer.
+     * @return the set of super users.
+     */
     Set<String> superUsers();
 
+    /**
+     * Gets the default result as epcified in {@link #copyWithNewConfig(int, Set, AuthorizationResult)}
+     * or as default during the construction of this authorizer.
+     * @return the default authorization result.
+     */
     AuthorizationResult defaultResult();
 
+    /**
+     * Returns the number of ACLs in this Authorizer.
+     * @return the number of ACLs in this Authorizer.
+     */
     int aclCount();
 
+    /**
+     * Gets the AclMutator.  This is the set of superusers provided in {@link #copyWithNewAclMutator(AclMutator)}
+     *      * or as default during the construction of this authorizer.
+     * @return
+     */
     AclMutator aclMutator();
 
+    /**
+     * Gets the logger for this authorizor.
+     * @return the logger for this authorizor.
+     */
     Logger log();
 
+    /**
+     * Creates an iterable collection of AclBindings based on the ACLs in this authorizer.  Bindings that do not pass
+     * the filter are not returned.
+     * @param filter the Filter for the AclBindings to be returned.
+     * @return the Iterable of AclBindings that pass the filter.
+     */
     Iterable<AclBinding> acls(AclBindingFilter filter);
 
+    /**
+     * Attempt to authorize the action within the context.
+     * @param requestContext the Context of the request.
+     * @param action the action that is requested.
+     * @return The authorizationResult.  May not be null.
+     * @throws IllegalArgumentException if the action resource pattern is not a literal
+     * @throws AuthorizerNotReadyException if the loading complete flag is not set.
+     */
     AuthorizationResult authorize(
             AuthorizableRequestContext requestContext,
             Action action
     );
 
+    /**
+     * The definition of a matching rule.
+     */
     interface MatchingRule {
+        /**
+         * Get the result of the rule.
+         * @return the result of the rule.
+         */
         AuthorizationResult result();
     }
 
+    /**
+     * The rule for super users.
+     */
     class SuperUserRule implements MatchingRule {
+        /** The instance of the SuperUserRule */
         static final SuperUserRule INSTANCE = new SuperUserRule();
+
+        private SuperUserRule() {
+            // do not allow other instances.
+        };
 
         @Override
         public AuthorizationResult result() {
@@ -195,9 +296,17 @@ public interface AuthorizerData {
         }
     }
 
+    /**
+     * The defalt rule definition.
+     */
     class DefaultRule implements MatchingRule {
+        /** The default result */
         private final AuthorizationResult result;
 
+        /**
+         * Creates a default rule with the specified result.
+         * @param result the default rule result.
+         */
         DefaultRule(AuthorizationResult result) {
             this.result = result;
         }
@@ -213,10 +322,20 @@ public interface AuthorizerData {
         }
     }
 
+    /**
+     * A MatchingRule extracted from an ACL.
+     */
     class MatchingAclRule implements MatchingRule {
+        /** The ACL the rules is based on */
         private final StandardAcl acl;
+        /** The result of the rule */
         private final AuthorizationResult result;
 
+        /**
+         * Constructs a matching rule.
+         * @param acl the ACL the rule is based on.
+         * @param result the result of the rule.
+         */
         MatchingAclRule(StandardAcl acl, AuthorizationResult result) {
             this.acl = acl;
             this.result = result;
@@ -233,21 +352,41 @@ public interface AuthorizerData {
         }
     }
 
+    /**
+     * A builder for matching rules.
+     */
     class MatchingRuleBuilder {
+        /** a single instance of the deny rule */
         static final DefaultRule DENY_RULE = new DefaultRule(DENIED);
+        /** the default mathing rule if no ACL is found */
         private final DefaultRule noAclRule;
+        /** set if a deny ACL was located */
         StandardAcl denyAcl;
+        /** set if an allow ACL was located */
         StandardAcl allowAcl;
+        /** set if resource ACLs were located */
         boolean hasResourceAcls;
 
+        /**
+         * Creates a builder with the default rule.
+         * @param noAclRule the default rule if no matches were found.
+         */
         public MatchingRuleBuilder(DefaultRule noAclRule) {
             this.noAclRule = noAclRule;
         }
 
+        /**
+         * True if a denyACL was found.
+         * @return
+         */
         boolean foundDeny() {
             return denyAcl != null;
         }
 
+        /**
+         * Build the Matching rule.
+         * @return the Matching rule from the builder.
+         */
         MatchingRule build() {
             if (denyAcl != null) {
                 return new MatchingAclRule(denyAcl, DENIED);
