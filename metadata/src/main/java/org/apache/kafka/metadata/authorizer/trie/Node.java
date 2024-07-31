@@ -27,7 +27,7 @@ import java.util.TreeSet;
 import java.util.function.IntConsumer;
 
 /**
- * The node definition for the Trie.  There are 4 types of nodes.
+ * The node definition for the Radix Trie.  There are 4 types of nodes.
  * <ul>
  *     <li>Root node - There is only one and it has no parent node.</li>
  *     <li>Leaf nodes - Has no child nodes and have "contents" set.</li>
@@ -37,6 +37,8 @@ import java.util.function.IntConsumer;
  *
  * This implementation only uses Strings for names but any Object for which an Inserter and a Matcher can be build
  * may be implemented.
+ *
+ * @see <a href="https://en.wikipedia.org/wiki/Radix_tree">Radix Tree (Wikipedia)</a>
  */
 public class Node<T> implements FragmentHolder<String> {
     /**
@@ -195,16 +197,12 @@ public class Node<T> implements FragmentHolder<String> {
      *
      * This is a recursive method.
      *
-     * @param counter  the consumer to increment when a new node is added.
      * @param inserter identifies the node to locate.
      * @return the added or found Node.
      */
-    Node<T> addNodeFor(IntConsumer counter, StringInserter inserter) {
+    Node<T> addNodeFor(StringInserter inserter) {
         // If the inserter is empty then we have found the Node.
         if (inserter.isEmpty()) {
-            if (this.contents == null) {
-                counter.accept(1);
-            }
             return this;
         }
 
@@ -222,7 +220,7 @@ public class Node<T> implements FragmentHolder<String> {
                 test = new Node<>(this, inserter.getFragment());
             }
             // recurse adding the next fragment to the found node
-            return test.addNodeFor(counter, inserter.advance(1));
+            return test.addNodeFor(inserter.advance(1));
         }
 
         // process non-wildcard segments
@@ -233,7 +231,7 @@ public class Node<T> implements FragmentHolder<String> {
                 if (!WildcardRegistry.isWildcard(child.fragment)) {
                     // segment extends or is equal to child fragment so add child to child.
                     if (segment.startsWith(child.fragment)) {
-                        return child.addNodeFor(counter, inserter.advance(child.fragment.length()));
+                        return child.addNodeFor(inserter.advance(child.fragment.length()));
                     }
 
                     // child extends segment; insert segment as new child and original child as segments's child.
@@ -247,7 +245,7 @@ public class Node<T> implements FragmentHolder<String> {
                         // adds renamed child to newNode.children
                         child.rename(newNode, child.fragment.substring(segment.length()));
                         children.remove(child);
-                        return newNode.addNodeFor(counter, inserter.advance(segment.length()));
+                        return newNode.addNodeFor(inserter.advance(segment.length()));
                     }
 
                     // check partial match case
@@ -269,14 +267,14 @@ public class Node<T> implements FragmentHolder<String> {
                             Node<T> newChild = new Node<>(newNode, segment.substring(i));
                             // remove the child we are replacing.
                             children.remove(child);
-                            return newChild.addNodeFor(counter, inserter.advance(segment.length()));
+                            return newChild.addNodeFor(inserter.advance(segment.length()));
                         }
                     }
                 }
             }
         }
         // no children; create child node of this node with the segment, and continue insert.
-        return new Node<T>(this, segment).addNodeFor(counter, inserter.advance(segment.length()));
+        return new Node<T>(this, segment).addNodeFor(inserter.advance(segment.length()));
     }
 
     /**
@@ -322,14 +320,11 @@ public class Node<T> implements FragmentHolder<String> {
      * Delete this node.
      * The contents of the node will be deleted.  The actual node will be deleted only if it is an
      * empty leaf node.
-     *
-     * @param counter The counter to decrement if contents are deleted.
      */
-    void delete(IntConsumer counter) {
+    void delete() {
         // if up is null we are the root.  Can not delete the root.
         if (up != null) {
             if (contents != null) {
-                counter.accept(-1);
                 contents = null;
             }
             // only remove empty leaf nodes.
@@ -338,7 +333,7 @@ public class Node<T> implements FragmentHolder<String> {
                 // if removal of empty leaf node creates new empty leaf node
                 // remove it.
                 if (up.children.isEmpty() && up.contents == null) {
-                    up.delete(counter);
+                    up.delete();
                 }
             }
         }

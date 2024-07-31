@@ -26,10 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
-public class NameTrieTest {
+public class StringTrieTest {
 
-    private NameTrie<Integer> standardSetup() {
-        NameTrie<Integer> trie = new NameTrie<>();
+    private StringTrie<Integer> standardSetup() {
+        StringTrie<Integer> trie = new StringTrie<>();
         trie.put("onetwothree", 3);
         trie.put("onethreefour", 4);
         trie.put("twothreefive", 5);
@@ -38,15 +38,19 @@ public class NameTrieTest {
 
     @Test
     public void testEquality() {
-        NameTrie<Integer> trie = new NameTrie<>();
-        assertTrue(trie.isEmpty());
+        NodeCounter<Integer> nodeCounter = new NodeCounter<>();
+        StringTrie<Integer> trie = new StringTrie<>();
+        Walker.depthFirst(nodeCounter, trie.getRoot());
+        assertEquals(0, nodeCounter.count());
         trie.put("onetwothree", 3);
-        assertFalse(trie.isEmpty());
-        assertEquals(1, trie.size());
+        Walker.depthFirst(nodeCounter, trie.getRoot());
+        assertEquals(1, nodeCounter.count());
         trie.put("onethreefour", 4);
-        assertEquals(2, trie.size());
+        Walker.depthFirst(nodeCounter, trie.getRoot());
+        assertEquals(2, nodeCounter.count());
         trie.put("twothreefive", 5);
-        assertEquals(3, trie.size());
+        Walker.depthFirst(nodeCounter, trie.getRoot());
+        assertEquals(3, nodeCounter.count());
 
         assertEquals(Integer.valueOf(3), trie.get("onetwothree"));
 
@@ -63,7 +67,7 @@ public class NameTrieTest {
 
     @Test
     public void testPartialSearch() {
-        NameTrie<Integer> trie = new NameTrie<>();
+        StringTrie<Integer> trie = new StringTrie<>();
         trie.put("HotWheels", 1);
         trie.put("HatWheels", 2);
         trie.put("HotMama", 3);
@@ -78,7 +82,7 @@ public class NameTrieTest {
 
     @Test
     public void getTest() {
-        NameTrie<Integer> trie = standardSetup();
+        StringTrie<Integer> trie = standardSetup();
 
         assertEquals(3, trie.get("onetwothree"));
         assertNull(trie.get("onetwoth"));

@@ -41,10 +41,10 @@ public class Walker {
 
     /**
      * Applies the predicate to each node in a depth-first fashion.
-     * If the predicate returns false the walker will stop and return the node.
+     * If the predicate returns true the walker will stop and return the node.
      * @param predicate the Predicate to apply.
      * @param data the Node to start at.
-     * @return The node on which the predicate returned {@code false} or null if that did not occur.
+     * @return The node on which the predicate returned {@code true} or null if that did not occur.
      *
      */
     public static <T> Node<T> depthFirst(Predicate<Node<T>> predicate, Node<T> data) {
@@ -60,13 +60,13 @@ public class Walker {
 
     /**
      * Applies the predicate to each node in a pre-order fashion.
-     * If the predicate returns false the walker will stop and return the node.
+     * If the predicate returns true the walker will stop and return the node.
      * @param predicate the Predicate to apply.
      * @param data the Node to start at.
-     * @return The node on which the predicate returned {@code false} or null if that did not occur.
+     * @return The node on which the predicate returned {@code true} or null if that did not occur.
      */
     public static <T> Node<T> preOrder(Predicate<Node<T>> predicate, Node<T> data) {
-        if (!predicate.test(data)) {
+        if (predicate.test(data)) {
             return data;
         }
         if (data.getChildren() != null) {

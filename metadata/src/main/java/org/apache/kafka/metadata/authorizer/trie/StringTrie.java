@@ -24,27 +24,21 @@ import java.util.function.IntConsumer;
 import java.util.function.Predicate;
 
 /**
- * The NameTrie is a Trie structure indexed by strings.
- * This trie is similar to a Patricia trie in that some internal nodes have data associated with them.
+ * The StringTrie is a Radix Trie structure indexed by strings.
  * @param <T> the type of object held in the trie.
  */
-public class NameTrie<T>  {
+public class StringTrie<T>  {
     /** the root node */
     private Node<T> root;
-    /** the size of the trie in populated nodes */
-    private int size = 0;
 
     /** A predicate to just execute a find without processing intermediate steps */
     private final Predicate<Node<T>> noExit = x -> false;
-
-    /** a consumer to increment the size counter */
-    private final IntConsumer counter = i -> size += i;
 
     /**
      * Constructor.
      * Creates an empty tree.
      */
-    public NameTrie() {
+    public StringTrie() {
         clear();
     }
 
@@ -53,7 +47,6 @@ public class NameTrie<T>  {
      */
     public void clear() {
         root = Node.makeRoot();
-        size = 0;
     }
 
     /**
@@ -65,22 +58,6 @@ public class NameTrie<T>  {
     public List<Node<T>> pathTo(String value) {
         Node<T> n = findNode(value);
         return n == null ? Collections.emptyList() : n.pathTo();
-    }
-
-    /**
-     * The number of populated nodes in the tree.
-     * @return the number of nodes with contents in the tree.
-     */
-    public int size() {
-        return size;
-    }
-
-    /**
-     * Returns true if {@code size() == 0}
-     * @return true if there are no populated nodes in the tree.
-     */
-    public boolean isEmpty() {
-        return size == 0;
     }
 
     /**
@@ -137,7 +114,7 @@ public class NameTrie<T>  {
      * @return Returns the matching or new node.
      */
     public Node<T> addNode(String key) {
-        return root.addNodeFor(counter, new StringInserter(key));
+        return root.addNodeFor(new StringInserter(key));
     }
 
     /**
@@ -169,7 +146,7 @@ public class NameTrie<T>  {
         Node<T> n = findNode(key);
         if (n != null && key.endsWith(n.getFragment())) {
             T result = n.getContents();
-            n.delete(counter);
+            n.delete();
             return result;
         }
         return null;

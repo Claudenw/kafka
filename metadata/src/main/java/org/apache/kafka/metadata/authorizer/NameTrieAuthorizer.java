@@ -31,7 +31,11 @@ import java.util.Collections;
 /**
  * An Authorizer that extends the standard Authorizer by reimplementing the
  * {@link #authorizeByResourceType(AuthorizableRequestContext, AclOperation, ResourceType)}
- * method and providing a Trie implementation for the {@link AuthorizerData}.
+ * method and providing a Radix Tree implementation for the {@link AuthorizerData}.
+ * <p>
+ *     All implementation details are described in the {@link NameTrieAuthorizerData} javadoc.
+ * </p>
+ * @see <a href="https://en.wikipedia.org/wiki/Radix_tree">Radix Tree (Wikipedia)</a>
  */
 public class NameTrieAuthorizer extends StandardAuthorizer {
 

@@ -28,7 +28,7 @@ import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.metadata.authorizer.bitmap.BitMaps;
-import org.apache.kafka.metadata.authorizer.trie.NameTrie;
+import org.apache.kafka.metadata.authorizer.trie.StringTrie;
 import org.apache.kafka.metadata.authorizer.trie.Node;
 import org.apache.kafka.metadata.authorizer.trie.Walker;
 import org.apache.kafka.metadata.authorizer.trie.WildcardRegistry;
@@ -67,6 +67,17 @@ import static org.apache.kafka.server.authorizer.AuthorizationResult.DENIED;
 
 /**
  * An AuthorizerData implementation that stores the Authorization data in Tries based on the name of the resource in the ACL.
+ *
+ * <p>
+ *     Design Notes:
+ *     <ul>
+ *         <li>There are multiple Tries, one for each Resource type seen in the stored ACLs</li>
+ *         <li>This code handles the calls from the Authorizer and translates those into calls into the Trie.</li>
+ *         <li>The business logic for locating an ACL and determining which ACL has precedence is defined in this class.</li>
+ *         <li>Specific navigation logic is found in the trie package</li>
+ *     </ul>
+ * </p>
+ *
  */
 public class NameTrieAuthorizerData extends AbstractAuthorizerData {
 
@@ -91,7 +102,6 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
      * The logger to use.
      */
     final Logger log;
-
 
     /**
      * The current AclMutator.
@@ -561,7 +571,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
         /**
          * The map of ResourceType to Trie
          */
-        private final Map<ResourceType, NameTrie<AclContainer>> tries;
+        private final Map<ResourceType, StringTrie<AclContainer>> tries;
         /**
          * The map of UUid to ACL
          */
@@ -601,10 +611,10 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
          */
         public void add(Uuid uuid, StandardAcl acl) {
             uuidMap.put(uuid, acl);
-            NameTrie<AclContainer> trie = tries.get(acl.resourceType());
+            StringTrie<AclContainer> trie = tries.get(acl.resourceType());
             if (trie == null) {
                 log.info("creating trie for resource type {}.", acl.resourceType());
-                trie = new NameTrie<>();
+                trie = new StringTrie<>();
                 tries.put(acl.resourceType(), trie);
                 AclContainer pattern = new AclContainer(acl);
                 trie.put(acl.resourceName(), pattern);
@@ -628,7 +638,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
             StandardAcl acl = uuidMap.get(uuid);
             if (acl != null) {
                 uuidMap.remove(uuid);
-                NameTrie<AclContainer> trie = tries.get(acl.resourceType());
+                StringTrie<AclContainer> trie = tries.get(acl.resourceType());
                 if (trie != null) {
                     log.debug("removing trie entry for " + acl);
                     AclContainer pattern = trie.get(acl.resourceName());
@@ -670,7 +680,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
                 case CLUSTER:
                 case DELEGATION_TOKEN:
                 case TRANSACTIONAL_ID:
-                    NameTrie<AclContainer> trie = tries.get(filter.patternFilter().resourceType());
+                    StringTrie<AclContainer> trie = tries.get(filter.patternFilter().resourceType());
                     Predicate<Node<AclContainer>> trieFilter = n -> {
                         AclContainer container = n.getContents();
                         if (container != null) {
@@ -705,7 +715,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
          * @return the Node that matches or caused an exit.
          */
         public Node<AclContainer> findNode(ResourcePattern resourcePattern, Predicate<Node<AclContainer>> exit) {
-            NameTrie<AclContainer> trie = tries.get(resourcePattern.resourceType());
+            StringTrie<AclContainer> trie = tries.get(resourcePattern.resourceType());
             if (trie == null) {
                 log.info("No trie found for {}", resourcePattern.resourceType());
                 return Node.makeRoot();
@@ -716,7 +726,7 @@ public class NameTrieAuthorizerData extends AbstractAuthorizerData {
         }
 
 
-        private NameTrie<AclContainer> getTrie(ResourceType resourceType) {
+        private StringTrie<AclContainer> getTrie(ResourceType resourceType) {
             return tries.get(resourceType);
         }
     }

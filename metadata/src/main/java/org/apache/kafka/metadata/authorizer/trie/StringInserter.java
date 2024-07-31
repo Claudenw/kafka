@@ -16,6 +16,9 @@
  */
 package org.apache.kafka.metadata.authorizer.trie;
 
+import java.util.TreeSet;
+import java.util.function.IntConsumer;
+
 /**
  * An {@link Inserter} for String patterns.
  * <p>
@@ -31,6 +34,7 @@ package org.apache.kafka.metadata.authorizer.trie;
  * </p>
  */
 public class StringInserter implements Inserter<String> {
+
     /** The pattern to insert */
     private final String pattern;
 
